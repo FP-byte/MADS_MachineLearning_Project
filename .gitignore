@@ -10,3 +10,7 @@ __pycache__
 **/logs
 *.db
 
+requirements-dev.lock
+requirements.lock
+notebooks/01_explore-heart.ipynb
+notebooks/02_2D-models.ipynb
