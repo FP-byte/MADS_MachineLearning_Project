@@ -145,3 +145,25 @@ class Transformer(nn.Module):
         x = x.mean(dim=1)  # Global Average Pooling
         x = self.out(x)
         return x
+
+class GRUmodel(nn.Module):
+    def __init__(
+        self,
+        config: dict,
+    ) -> None:
+        super().__init__()
+        print(config)
+        self.rnn = nn.GRU(
+            input_size=config["input_size"],
+            hidden_size=int(config["hidden"]),
+            dropout=config["dropout"],
+            batch_first=True,
+            num_layers=int(config["num_layers"]),
+        )
+        self.linear = nn.Linear(int(config["hidden"]), config["output"])
+
+    def forward(self, x):
+        x, _ = self.rnn(x)
+        last_step = x[:, -1, :]
+        yhat = self.linear(last_step)
+        return yhat
