@@ -13,3 +13,10 @@ __pycache__
 requirements-dev.lock
 requirements.lock
 
+notebooks/.ipynb_checkpoints/05_Autoencoder-model-checkpoint.ipynb
+Untitled.ipynb
+.ipynb_checkpoints/*-checkpoint.ipynb
+data/heart_big_anom_test.parq
+data/heart_big_anom_train.parq
+data/heart_big_norm_test.parq
+data/heart_big_norm_train.parq
