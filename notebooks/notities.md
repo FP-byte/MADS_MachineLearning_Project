@@ -84,3 +84,85 @@ Bereken de F1-score per klasse en neem vervolgens het gemiddelde van die scores.
 Geeft gelijk gewicht aan elke klasse, ongeacht de frequentie van die klasse.
 Voordeel: Het is nuttig wanneer je wilt dat je model evenveel aandacht besteedt aan minder vertegenwoordigde klassen.
 Nadeel: Het kan gevoelig zijn voor slechte prestaties op zeldzame klassen (zoals de zeldzamere hartproblemen in je dataset), wat de score verlaagt, zelfs als de prestaties op andere klassen goed zijn.
+
+To monitor the F1 score during training in PyTorch and adjust the learning rate based on its performance (e.g., with a scheduler like ReduceLROnPlateau), you need to compute the F1 score at the end of each epoch or batch. Here's a step-by-step guide on how to do that:
+1. Install Dependencies
+First, make sure you have scikit-learn installed, as it provides a convenient function to compute the F1 score. 
+pip install scikit-learn
+2. Compute F1 Score in PyTorch
+During training, you typically use predictions and true labels to compute the F1 score. You can use scikit-learn's f1_score function to do this.
+
+3. Monitoring F1 Score with ReduceLROnPlateau Scheduler
+The ReduceLROnPlateau scheduler can be used to adjust the learning rate when the F1 score stops improving.
+
+Here is an example of how to compute and monitor the F1 score during training and use it with ReduceLROnPlateau:
+import torch
+import torch.optim as optim
+import torch.nn as nn
+import torch.nn.functional as F
+from sklearn.metrics import f1_score
+from torch.utils.data import DataLoader, TensorDataset
+
+# Example model and optimizer
+model = nn.Sequential(
+    nn.Conv1d(10, 32, 3),
+    nn.ReLU(),
+    nn.Transformer(d_model=32, nhead=4, num_encoder_layers=6, num_decoder_layers=6)
+)
+
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Dummy data for training (e.g., a classification task)
+X_train = torch.randn(100, 10, 32)  # 100 samples, 10 features, 32 timesteps
+y_train = torch.randint(0, 5, (100,))  # 100 labels for 5 classes (0-4)
+
+# DataLoader for batching
+train_data = TensorDataset(X_train, y_train)
+train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
+
+# F1 score computation during training
+def compute_f1_score(predictions, labels):
+    # Assuming predictions are logits and labels are integers
+    pred_labels = torch.argmax(predictions, dim=1)
+    return f1_score(labels.cpu(), pred_labels.cpu(), average='macro')
+
+# Learning rate scheduler based on F1 score
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, min_lr=1e-6)
+
+# Training loop
+for epoch in range(10):
+    model.train()
+    total_loss = 0
+    all_preds = []
+    all_labels = []
+    
+    for x_batch, y_batch in train_loader:
+        optimizer.zero_grad()
+        
+        # Forward pass
+        outputs = model(x_batch)
+        loss = F.cross_entropy(outputs, y_batch)
+        
+        # Backward pass
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+        all_preds.append(outputs)
+        all_labels.append(y_batch)
+    
+    # Compute F1 score after each epoch
+    all_preds = torch.cat(all_preds, dim=0)
+    all_labels = torch.cat(all_labels, dim=0)
+    epoch_f1 = compute_f1_score(all_preds, all_labels)
+    
+    # Step the scheduler based on F1 score
+    scheduler.step(epoch_f1)
+    
+    print(f"Epoch {epoch+1}, Loss: {total_loss/len(train_loader)}, F1 Score: {epoch_f1:.4f}")
+
+F1 Score Calculation:
+compute_f1_score: This function computes the F1 score using scikit-learn's f1_score. The model outputs logits, so we use torch.argmax to get the predicted class indices, and then compare them to the true labels.
+average='macro': This computes the F1 score for each class independently and then averages them. You can change this depending on your specific needs (e.g., micro, weighted).
+Learning Rate Scheduler: The ReduceLROnPlateau scheduler monitors the F1 score (via mode='max' since we're trying to maximize it) and reduces the learning rate if the F1 score doesn't improve after a certain number of epochs (patience).
+Key
