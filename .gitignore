@@ -13,3 +13,6 @@ __pycache__
 requirements-dev.lock
 requirements.lock
 
+
+data/*.parq
+
