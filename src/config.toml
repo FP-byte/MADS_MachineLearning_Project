@@ -1,0 +1,4 @@
+ptb = "heart"
+arrhythmia = "heart_big"
+arrhythmia_semioversampled = "heart_big_oversampled"
+arrhythmia_oversampled = "heart_big_oversampled_full"
