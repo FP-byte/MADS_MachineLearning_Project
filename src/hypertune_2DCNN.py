@@ -6,7 +6,7 @@ import torch
 from loguru import logger
 from ray import tune
 from hypertuner import Hypertuner
-from settings import settings_hypertuner
+from settings import base_hypertuner
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
 from mltrainer.preprocessors import PaddedPreprocessor
 
@@ -15,7 +15,7 @@ def hypertune_2DCNN():
     #test with 2DCNN
     ray.init()
 
-    data_dir = settings_hypertuner["data_dir"]
+    data_dir = base_hypertuner["data_dir"]
     if not data_dir.exists():
         data_dir.mkdir(parents=True)
         logger.info(f"Created {data_dir}")
@@ -36,7 +36,7 @@ def hypertune_2DCNN():
 
     config = {
         "preprocessor": BasePreprocessor,
-        "tune_dir": settings_hypertuner["tune_dir"],
+        "tune_dir": base_hypertuner["tune_dir"],
         "data_dir": data_dir,
         "batch": 32,  # Batch size specific to the dataset
         "hidden": tune.randint(100, 512),
@@ -60,7 +60,8 @@ def hypertune_2DCNN():
         storage_path=str(config["tune_dir"]),
         num_samples=hypertuner.NUM_SAMPLES,
         search_alg=hypertuner.search,
-        scheduler=hypertuner.scheduler,
+        #scheduler=hypertuner.scheduler,
+        scheduler=config["scheduler"],
         verbose=1,
         trial_dirname_creator=hypertuner.shorten_trial_dirname,
     )

@@ -24,7 +24,8 @@ data/heart_big_anom_train.parq
 data/heart_big_norm_test.parq
 data/heart_big_norm_train.parq
 
-data/processed/heart_big_oversampled_full_train.parq
-data/processed/heart_big_test.parq
-data/raw/heart_big_test.parq
-data/raw/heart_big_train.parq
+
+data/raw/*
+data/raw/*
+data/processed/*
+data/processed/*

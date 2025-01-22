@@ -28,9 +28,9 @@ class Hypertuner:
             config (Dict): Hyperparameter configuration to tune.
         """
         self.NUM_SAMPLES = settings_hypertuner.get("NUM_SAMPLES", 10)
-        self.MAX_EPOCHS = settings_hypertuner.get("MAX_EPOCHS", 50)
+        self.MAX_EPOCHS = settings_hypertuner.get("MAX_EPOCHS", 15)
         self.device = settings_hypertuner.get("device", "cpu")
-        self.accuracy = settings_hypertuner.get("accuracy", metrics.Accuracy())
+        self.accuracy = settings_hypertuner.get("accuracy", Accuracy())
         self.f1micro = settings_hypertuner.get("f1micro", F1Score(average='micro'))
         self.f1macro = settings_hypertuner.get("f1macro", F1Score(average='macro'))
         self.precision = settings_hypertuner.get("precision", Precision('micro'))
@@ -94,15 +94,13 @@ class Hypertuner:
             train_steps=len(trainstreamer)//5,
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
-            scheduler_kwargs=None,
+            scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
             earlystop_kwargs=None,
         )
-        if config.get("scheduler") == "torch.optim.lr_scheduler.OneCycleLR":
+        if config.get("scheduler") == torch.optim.lr_scheduler.OneCycleLR:
             print("Using OneCycleLR")
-            trainersettings.scheduler_kwargs = {"max_lr": 0.01, "steps_per_epoch": trainersettings.train_steps}
-        else:
-            trainersettings.scheduler_kwargs = {"factor": config['factor'], "patience": config['patience']}
-
+            trainersettings.scheduler_kwargs = {"max_lr": 0.01, "total_steps": trainersettings.train_steps}
+       
         if torch.backends.mps.is_available() and torch.backends.mps.is_built():
             device = torch.device("mps")
             print("Using MPS")
@@ -117,7 +115,7 @@ class Hypertuner:
             optimizer=torch.optim.Adam,
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
-            scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau,
+            scheduler=config.get("scheduler"),
             #device=device,
         )
 
@@ -192,15 +190,15 @@ if __name__ == "__main__":
     
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
-        "NUM_SAMPLES": 10,
-        "MAX_EPOCHS": 5,
-        "device": "cpu",
-        "accuracy": Accuracy(),            
-        "f1micro": F1Score(average='micro'),
-        "f1macro": F1Score(average='macro'),
-        "precision": Precision('macro'),
-        "recall" : Recall('macro'),
-        "reporttypes": [ReportTypes.RAY, ReportTypes.TENSORBOARD, ReportTypes.MLFLOW],
+        "NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
+        "MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
+        "device": base_hypertuner.device,
+        "accuracy": base_hypertuner.accuracy,            
+        "f1micro": base_hypertuner.f1micro,
+        "f1macro": base_hypertuner.f1macro,
+        "precision": base_hypertuner.precision,
+        "recall" : base_hypertuner.recall,
+        "reporttypes": base_hypertuner.reporttypes,
     }
 
     config = {
@@ -208,16 +206,17 @@ if __name__ == "__main__":
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
         "batch": 32,  # Batch size specific to the dataset
-        "hidden": tune.choice([64, 128, 256, 512]),
-        "dropout": tune.uniform(0.0, 0.4),
+        "hidden": tune.randint(64, 128),
+        "dropout": tune.uniform(0.1, 0.4),
         "num_layers": tune.randint(2, 5),
-        "model_type": "2DCNN",  # Specify the model type
-        "model_type": tune.choice(["2DCNN", "2DCNNResnet", "2DTransformerResnet"]),  # Specify the model type
+        "model_type": "2DCNNResnet",  # Specify the model type
+        #"model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
-        "num_heads": 8,
-        "scheduler": tune.choice(["torch.optim.lr_scheduler.ReduceLROnPlateau", "torch.optim.lr_scheduler.OneCycleLR"]),
+        "num_heads": tune.randint(2, 8),
+       # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
+        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
         "factor": tune.uniform(0.2, 0.9),
         "patience": tune.randint(2, 4),
         
@@ -225,6 +224,7 @@ if __name__ == "__main__":
 
     hypertuner = Hypertuner(settings_hypertuner, config)
     config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
+    
 
     analysis = tune.run(
         hypertuner.train,
