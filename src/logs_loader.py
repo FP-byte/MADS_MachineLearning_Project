@@ -5,6 +5,7 @@ import ray
 import pandas as pd
 
 
+
 def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
     """
     Loads the Ray Tune results from a specified directory and returns them as a DataFrame.
@@ -16,6 +17,7 @@ def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
         pd.DataFrame: Combined and cleaned results DataFrame.
     """
     tune_dir = Path(path).resolve()
+    print(tune_dir)
     if not tune_dir.exists():
         logger.warning("Model data directory does not exist. Check your tune directory path.")
         return pd.DataFrame()
@@ -55,8 +57,14 @@ def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
     results_df = pd.concat(results, ignore_index=True)
 
     # Get the top 10 rows based on accuracy
-    top_10_df = results_df.nlargest(10, "accuracy")
+    top_10_df = results_df.nlargest(10, "recallmacro")
     print("Top 10 Results:")
-    print(top_10_df)
+    print(top_10_df.columns)
+    top10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "training_iteration", "factor"]]
+    top10_df.reset_index(drop=True, inplace=True)
+    print(top10_df)
 
     return results_df
+
+if __name__ == "__main__":
+    load_tunelogs_data()

@@ -6,18 +6,18 @@ import torch
 from loguru import logger
 from ray import tune
 from hypertuner import Hypertuner
-from settings import base_hypertuner
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
-from mltrainer.preprocessors import PaddedPreprocessor
+from settings import base_hypertuner
+from mltrainer.preprocessors import BasePreprocessor
 
-def hypertune_2DCNN():
-    #test with 2DCNN
+def hypertune_Transformer():
+
     ray.init()
     
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
-        "NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        "MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
+        "NUM_SAMPLES": 15,
+        "MAX_EPOCHS": 30,
         "device": base_hypertuner.device,
         "accuracy": base_hypertuner.accuracy,            
         "f1micro": base_hypertuner.f1micro,
@@ -31,20 +31,20 @@ def hypertune_2DCNN():
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": 32,  # Batch size specific to the dataset
-        "hidden": tune.randint(130, 256),
-        "dropout": tune.uniform(0.1, 0.4),
+        "batch": tune.choice([16, 32]),  # Batch size specific to the dataset
+        "hidden": tune.choice([64, 128]),
+        "dropout": tune.uniform(0.2, 0.4),
         "num_layers": tune.randint(2, 5),
-        #"model_type": "2DCNNResnet",  # Specify the model type
-        "model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
+        #"model_type": "2DTransformer",  # Specify the model type
+        "model_type": tune.choice(["2DTransformerResnet", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
-        "num_heads": tune.randint(2, 8),
+        "num_heads": tune.choice([4, 8]),
        # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
-        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-       # "factor": 0.4,
-       # "patience": 2,
+        #"scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau, # using tuner scheduler
+        "factor": tune.choice([0.2, 0.3, 0.4]),
+        "patience": 3,
         
     }
 
@@ -69,5 +69,4 @@ def hypertune_2DCNN():
     ray.shutdown()
 
 if __name__ == "__main__":
-    hypertune_2DCNN()
-    load_tunelogs_data()
+    hypertune_Transformer()

@@ -7,16 +7,17 @@ from loguru import logger
 from ray import tune
 from hypertuner import Hypertuner
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
+from settings import base_hypertuner
+from mltrainer.preprocessors import BasePreprocessor
 
-
-def hypertune_Transformer():
+def hypertune_2DTransformerResnet():
 
     ray.init()
     
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
         "NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        "MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
+        "MAX_EPOCHS": 20,
         "device": base_hypertuner.device,
         "accuracy": base_hypertuner.accuracy,            
         "f1micro": base_hypertuner.f1micro,
@@ -30,20 +31,20 @@ def hypertune_Transformer():
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": 32,  # Batch size specific to the dataset
-        "hidden": tune.randint(64, 256),
-        "dropout": tune.uniform(0.1, 0.4),
+        "batch": tune.choice([8, 16, 32, 64]),  # Batch size specific to the dataset
+        "hidden": tune.choice([64, 128]),
+        "dropout": tune.uniform(0.2, 0.4),
         "num_layers": tune.randint(2, 5),
-        "model_type": "2DTransformer",  # Specify the model type
+        "model_type": "2DTransformerResnet",  # Specify the model type
         #"model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
-        "num_heads": tune.randint(2, 8),
+        "num_heads": tune.choice([2, 4, 8, 10]),
        # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": tune.uniform(0.2, 0.9),
-        "patience": tune.randint(2, 4),
+        "factor": tune.choice([0.2, 0.3, 0.4]),
+        "patience": 3,
         
     }
 
@@ -68,4 +69,4 @@ def hypertune_Transformer():
     ray.shutdown()
 
 if __name__ == "__main__":
-    hypertune_Transformer()
+    hypertune_2DTransformerResnet()

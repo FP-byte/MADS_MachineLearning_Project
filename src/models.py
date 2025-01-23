@@ -202,30 +202,31 @@ class Transformer2D(nn.Module):
         config: dict,
     ) -> None:
         super().__init__()
-        hidden = config["hidden"]
+        self.config = config
+        self.hidden = self.config["hidden"]
         self.convolutions = nn.ModuleList([
-            ConvBlock(1, hidden),
+            ConvBlock(1, self.hidden),
         ])
 
         for i in range(config['num_blocks']):
-            self.convolutions.extend([ConvBlock(hidden, hidden), nn.ReLU()])
+            self.convolutions.extend([ConvBlock(self.hidden, self.hidden), nn.ReLU()])
         self.convolutions.append(nn.MaxPool2d(2, 2))
 
-        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+        self.pos_encoder = PositionalEncoding(self.hidden, self.config["dropout"])
 
         # Create multiple transformer blocks
         self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
-            for _ in range(config["num_blocks"])
+            TransformerBlock(self.config["hidden"], self.config["num_heads"], self.config["dropout"])
+            for _ in range(self.config["num_blocks"])
         ])
 
         #self.out = nn.Linear(config["hidden"], config["num_classes"])
         self.out = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(config["hidden"], config["hidden"]//2),
+            nn.Linear(self.config["hidden"], self.config["hidden"]//2),
             nn.ReLU(),
-            nn.Dropout(config["dropout"]),
-            nn.Linear(config["hidden"]//2, config['num_classes']),
+            nn.Dropout(self.config["dropout"]),
+            nn.Linear(self.config["hidden"]//2, self.config['num_classes']),
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -235,10 +236,10 @@ class Transformer2D(nn.Module):
         # pos_encoding:     (batch, seq_len, channels)
         # attention:        (batch, seq_len, channels)
         #x = self.conv1d(x.transpose(1, 2)) # flip channels and seq_len for conv1d
-        x = x.view(32, 1, 16, 12) # reshape to 2D
+        x = x.view(x.size(0), 1, 16, 12) # reshape to 2D
         for conv in self.convolutions:
             x = conv(x)
-        x = x.view(32, config["hidden"], (6*8))
+        x = x.view(x.size(0), self.config["hidden"], (6*8))
         x = self.pos_encoder(x.transpose(1, 2)) # flip back to seq_len and channels
 
         # Apply multiple transformer blocks
@@ -248,6 +249,7 @@ class Transformer2D(nn.Module):
         x = x.mean(dim=1) # Global Average Pooling
         x = self.out(x)
         return x
+
 
 # ResNet Block for 1D convolutions
 class ResNetBlock(nn.Module):
@@ -309,6 +311,7 @@ class ResNetBlock(nn.Module):
         return out
 
 # Transformer 1D model with ResNet block
+# Transformer model with ResNet block
 class Transformer1DResnet(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -355,43 +358,6 @@ class Transformer1DResnet(nn.Module):
         x = self.out(x)
         return x
 
-# Define the 2D ResNet Block
-class ResNetBlock2D(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int) -> None:
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-        # If input and output sizes do not match, apply a projection (1x1 conv)
-        self.projection = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
-
-        # Identity shortcut connection, could be a 1x1 convolution to match dimensions
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
-                nn.BatchNorm2d(out_channels)
-            )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        identity = x  # Store the input for the skip connection
-
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-
-        x = self.conv2(x)
-        x = self.bn2(x)
-
-        # Add the input to the output (skip connection)
-        x += self.projection(identity)
-        x = self.relu(x)
-
-        return x
-
 # 2D CNN WITH RESNET BLOCKS
 class CNN2DResNet(nn.Module):
     def __init__(self, config: dict) -> None:
@@ -428,6 +394,36 @@ class CNN2DResNet(nn.Module):
 
 
 # 2D TRANSFORMER WITH RESNET BLOCKS
+# Define the 2D ResNet Block
+class ResNetBlock2D(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # If input and output sizes do not match, apply a projection (1x1 conv)
+        self.projection = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        identity = x  # Store the input for the skip connection
+
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+
+        # Add the input to the output (skip connection)
+        x += self.projection(identity)
+        x = self.relu(x)
+
+        return x
+
+
 class Transformer2DResNet(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -440,7 +436,7 @@ class Transformer2DResNet(nn.Module):
             stride=2,
             padding=1,
         )
-        print('2d conv')
+        #print('2d conv')
 
         # Add ResNet Block (2D)
         self.resnet_block = ResNetBlock2D(config["hidden"], config["hidden"])
@@ -448,7 +444,7 @@ class Transformer2DResNet(nn.Module):
 
         # Positional Encoding for Transformer input
         self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
-        print('positional encoding')
+        #print('positional encoding')
 
         # Create multiple transformer blocks
         self.transformer_blocks = nn.ModuleList([
@@ -464,12 +460,19 @@ class Transformer2DResNet(nn.Module):
             nn.Linear(config["hidden"] // 2, config["num_classes"]),
         )
 
+# - streamer:         (batch, seq_len, channels)
+# - conv1d:           (batch, channels, seq_len)
+# - pos_encoding:     (batch, seq_len, channels)
+# - gru (batchfirst): (batch, seq_len, channels)
+# - attention:        (batch, seq_len, channels)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
        # print("input", x.shape)
-        #x = x.view(32, 1, 16, 12) # reshape to 2D
+        x = x.view(x.size(0), 1, 16, 12) # reshape to 2D
+       # print("input", x.shape)
         # Apply Conv2D to the input (convert from (batch, channels, height, width) to (batch, hidden, height, width))
-        x = self.conv2d(x.transpose(1, 2))  # (batch, hidden, height//2, width//2)
-
+        x = self.conv2d(x)  # (batch, hidden, height, width)
+       # print("input afte cov2", x.shape)
         # Apply ResNet Block (2D)
         x = self.resnet_block(x)  # (batch, hidden, height//2, width//2)
 

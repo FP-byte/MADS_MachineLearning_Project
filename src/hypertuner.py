@@ -17,6 +17,8 @@ from mads_datasets import DatasetFactoryProvider, DatasetType
 from metrics import Accuracy, F1Score, Precision, Recall
 import datasets
 from settings import base_hypertuner
+from loguru import logger
+import logging
 
 class Hypertuner:
     def __init__(self, settings_hypertuner: Dict, config: Dict):
@@ -33,7 +35,7 @@ class Hypertuner:
         self.accuracy = settings_hypertuner.get("accuracy", Accuracy())
         self.f1micro = settings_hypertuner.get("f1micro", F1Score(average='micro'))
         self.f1macro = settings_hypertuner.get("f1macro", F1Score(average='macro'))
-        self.precision = settings_hypertuner.get("precision", Precision('micro'))
+        self.precision = settings_hypertuner.get("precision", Precision('macro'))
         self.recall = settings_hypertuner.get("recall", Recall('macro'))
         self.reporttypes = settings_hypertuner.get("reporttypes", [ReportTypes.RAY, ReportTypes.TENSORBOARD, ReportTypes.MLFLOW])
         self.config = config
@@ -49,6 +51,35 @@ class Hypertuner:
         """Shorten the trial directory name to avoid path length issues."""
         return f"trial_{trial.trial_id}"
 
+    
+    def _save(self, checkpoint_dir):
+        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint")
+        torch.save({
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "epoch": self.epoch
+        }, checkpoint_path)
+        return checkpoint_path
+
+    def _restore(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.epoch = checkpoint["epoch"]
+    
+    def generate_valid_hidden_and_heads(self, hidden: list, heads : int):
+            valid_combinations = []
+            heads = int(heads)  # Convert heads to int
+            for h in range(hidden[0], hidden[1], 20):  # range of hidden units
+                print(type(h))
+                heads = int(heads)
+                if h % heads == 0:
+                    print(type(heads))
+                    valid_combinations.append(hidden)
+            print(f"Valid combinations: {valid_combinations}")
+            return random.choice(valid_combinations)
+
+
     def train(self, config):
         """
         Train function to be passed to Ray Tune. Dynamically handles datasets and models.
@@ -62,13 +93,18 @@ class Hypertuner:
         trainfile = Path(config["trainfile"])
         testfile = Path(config["testfile"]) 
 
+        
 
+        print(f"Training with model: {config['model_type']}")
         # load the data based on the configuration
-        if config.get("model_type") in ["1DTransformer", "1DTransformerResnet"]:
+        if config["model_type"] in ["1DTransformer", "1DTransformerResnet"]:
+            print("Loading 1D data")
             traindataset = datasets.HeartDataset1D(trainfile, target="target")
             testdataset = datasets.HeartDataset1D(testfile, target="target")
 
-        else:                
+
+        if config["model_type"] in ["2DTransformer", "2DTransformerResnet", "2DCNNResnet"]:
+            print("Loading 2D data")            
             traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config["shape"])
             testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config["shape"])
    
@@ -78,8 +114,8 @@ class Hypertuner:
         preprocessor = preprocessor_class()
         
         with FileLock(data_dir / ".lock"):
-            trainstreamer = BaseDatastreamer(traindataset, preprocessor = BasePreprocessor(), batchsize=32)
-            teststreamer = BaseDatastreamer(testdataset, preprocessor = BasePreprocessor(), batchsize=32)
+            trainstreamer = BaseDatastreamer(traindataset, preprocessor = BasePreprocessor(), batchsize=config["batch"])
+            teststreamer = BaseDatastreamer(testdataset, preprocessor = BasePreprocessor(), batchsize=config["batch"])
 
 
         # Initialize the model
@@ -94,7 +130,8 @@ class Hypertuner:
             train_steps=len(trainstreamer)//5,
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
-            scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
+            #scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
+            scheduler_kwargs={"factor": 0.4, "patience": 2}, #hypertuning shows default values work best
             earlystop_kwargs=None,
         )
         if config.get("scheduler") == torch.optim.lr_scheduler.OneCycleLR:
@@ -115,12 +152,18 @@ class Hypertuner:
             optimizer=torch.optim.Adam,
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
-            scheduler=config.get("scheduler"),
+            #scheduler=config.get("scheduler"),
+            scheduler=hypertuner.scheduler,
             #device=device,
         )
 
         logger.info(f"Starting training on {self.device}")
-        trainer.loop()
+        try:
+            trainer.loop()
+        except Exception as e:
+            logger.exception(f"An error occurred during training: {e}")
+            logger.warning("Training failed, error: {e}")
+            raise
     
   
     def load_datafiles(self, data_dir: Path):
@@ -168,7 +211,7 @@ class Hypertuner:
         elif model_type == "2DCNNResnet":
             from models import CNN2DResNet
             return CNN2DResNet(config)
-        elif model_type == "1DTransormer":
+        elif model_type == "1DTransformer":
             from models import Transformer
             return Transformer(config)
         elif model_type == "2DTransformer":
@@ -186,7 +229,8 @@ class Hypertuner:
 
 if __name__ == "__main__":
     #test with 2DCNN
-    ray.init()
+    #ray.init()
+    ray.init(logging_level=logging.WARNING)
     
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
@@ -205,25 +249,26 @@ if __name__ == "__main__":
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": 32,  # Batch size specific to the dataset
-        "hidden": tune.randint(64, 128),
-        "dropout": tune.uniform(0.1, 0.4),
+        "batch": tune.choice([32, 48, 60]),  # Batch size specific to the dataset
+        "hidden": tune.choice([64, 128, 256]),
+        "dropout": tune.uniform(0.1, 0.5),
         "num_layers": tune.randint(2, 5),
-        "model_type": "2DCNNResnet",  # Specify the model type
-        #"model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
+        #"model_type": "2DCNNResnet",  # Specify the model type
+        "model_type": "2DTransformerResnet",  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
-        "num_heads": tune.randint(2, 8),
+        "num_heads": tune.choice([1, 2, 4, 6, 8]),
        # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": tune.uniform(0.2, 0.9),
-        "patience": tune.randint(2, 4),
+        "factor": 0.4,
+        "patience": 2,
         
     }
 
     hypertuner = Hypertuner(settings_hypertuner, config)
     config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
+
     
 
     analysis = tune.run(
@@ -237,7 +282,12 @@ if __name__ == "__main__":
         search_alg=hypertuner.search,
         scheduler=hypertuner.scheduler,
         verbose=1,
+        resume=True,  # This will resume from the last checkpoint if available
         trial_dirname_creator=hypertuner.shorten_trial_dirname,
     )
 
+    # Print the best result
+    print("Best config: ", analysis.get_best_config(metric="accuracy", mode="max"))
+    print("Best config: ", analysis.get_best_config(metric="recall", mode="max"))
+    print("Best config: ", analysis.get_best_config(metric="f1macro", mode="max"))
     ray.shutdown()
