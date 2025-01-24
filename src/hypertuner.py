@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Dict
 import tomllib
-
+import os
+from datetime import datetime
 import ray
 import torch
 from filelock import FileLock
@@ -19,6 +20,8 @@ import datasets
 from settings import base_hypertuner
 from loguru import logger
 import logging
+import tempfile
+
 
 class Hypertuner:
     def __init__(self, settings_hypertuner: Dict, config: Dict):
@@ -52,21 +55,6 @@ class Hypertuner:
         return f"trial_{trial.trial_id}"
 
     
-    def _save(self, checkpoint_dir):
-        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint")
-        torch.save({
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "epoch": self.epoch
-        }, checkpoint_path)
-        return checkpoint_path
-
-    def _restore(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.epoch = checkpoint["epoch"]
-    
     def generate_valid_hidden_and_heads(self, hidden: list, heads : int):
             valid_combinations = []
             heads = int(heads)  # Convert heads to int
@@ -78,6 +66,40 @@ class Hypertuner:
                     valid_combinations.append(hidden)
             print(f"Valid combinations: {valid_combinations}")
             return random.choice(valid_combinations)
+
+    def test_best_model(self, best_result, smoke_test=False):
+
+        best_trained_model = self._initialize_model(best_result.config["model_type"])
+        
+        best_trained_model.to(self.device)
+
+        checkpoint_path = os.path.join(best_result.checkpoint.to_directory(), "checkpoint.pt")
+
+        model_state, optimizer_state = torch.load(checkpoint_path)
+        best_trained_model.load_state_dict(model_state)
+
+        if smoke_test:
+            _, testset = load_test_data()
+        else:
+            _, testset = load_data()
+
+        testloader = torch.utils.data.DataLoader(
+            testset, batch_size=4, shuffle=False, num_workers=2
+        )
+
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for data in testloader:
+                images, labels = data
+                images, labels = images.to(device), labels.to(device)
+                outputs = best_trained_model(images)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+
+        print("Best trial test set accuracy: {}".format(correct / total))
 
 
     def train(self, config):
@@ -93,7 +115,12 @@ class Hypertuner:
         trainfile = Path(config["trainfile"])
         testfile = Path(config["testfile"]) 
 
-        
+        if torch.backends.mps.is_available():
+            self.device = torch.device('mps')
+            print('MPS is available')
+        else:
+            self.device = torch.device('cpu')
+    
 
         print(f"Training with model: {config['model_type']}")
         # load the data based on the configuration
@@ -131,18 +158,32 @@ class Hypertuner:
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
             #scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
-            scheduler_kwargs={"factor": 0.4, "patience": 2}, #hypertuning shows default values work best
+            scheduler_kwargs={"factor": 0.3, "patience": 2}, #hypertuning shows default values work best
             earlystop_kwargs=None,
         )
-        if config.get("scheduler") == torch.optim.lr_scheduler.OneCycleLR:
+        if config.get("scheduler") == torch.optim.lr_scheduler.ExponentialLR:
             print("Using OneCycleLR")
-            trainersettings.scheduler_kwargs = {"max_lr": 0.01, "total_steps": trainersettings.train_steps}
-       
-        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            device = torch.device("mps")
-            print("Using MPS")
-        else:
-            device = "cpu"
+            trainersettings.scheduler_kwargs = {"gamma": config['factor']}
+        if config.get("scheduler") == torch.optim.lr_scheduler.LambdaLR:
+            # Parameters
+            num_warmup_steps = 1000
+            num_training_steps = 10000
+            initial_lr = 5e-5
+            min_lr = 1e-7
+
+            # Custom linear scheduler with warmup
+            def lr_lambda(current_step: int):
+                if current_step < num_warmup_steps:
+                    return float(current_step) / float(max(1, num_warmup_steps))
+                else:
+                    progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+                    return max(min_lr / initial_lr, (1.0 - progress))
+
+            # Learning rate scheduler
+            trainersettings.scheduler_kwargs = {"lr_lambda": lr_lambda}
+        if config.get("scheduler") == torch.optim.lr_scheduler.CosineAnnealingLR:
+            trainersettings.scheduler_kwargs = {"T_max": trainersettings.train_steps}
+
 
         # Set up the trainer
         trainer = Trainer(
@@ -154,7 +195,7 @@ class Hypertuner:
             validdataloader=teststreamer.stream(),
             scheduler=config.get("scheduler"),
             #scheduler=hypertuner.scheduler,
-            #device=device,
+            device=self.device,
         )
 
         logger.info(f"Starting training on {self.device}")
@@ -164,7 +205,6 @@ class Hypertuner:
             logger.exception(f"An error occurred during training: {e}")
             logger.warning("Training failed, error: {e}")
             raise
-    
   
     def load_datafiles(self, data_dir: Path):
         configfile = Path("config.toml")
@@ -179,9 +219,10 @@ class Hypertuner:
             logger.info(f"Created {tune_dir}")
 
         #load train and test files
-       # trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
-        trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
+        trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+       # trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
+
         return trainfile, testfile
 
 
@@ -235,8 +276,10 @@ if __name__ == "__main__":
     
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
-        "NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        "MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
+        #"NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
+        #"MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
+        "NUM_SAMPLES": 1,
+        "MAX_EPOCHS": 1,
         "device": base_hypertuner.device,
         "accuracy": base_hypertuner.accuracy,            
         "f1micro": base_hypertuner.f1micro,
@@ -259,7 +302,7 @@ if __name__ == "__main__":
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
-        "num_heads": tune.choice([1, 2, 4, 6, 8]),
+        "num_heads": tune.choice([1, 2, 4, 8]),
        # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
         "factor": 0.4,
@@ -269,8 +312,6 @@ if __name__ == "__main__":
 
     hypertuner = Hypertuner(settings_hypertuner, config)
     config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
-
-    
 
     analysis = tune.run(
         hypertuner.train,
@@ -287,8 +328,23 @@ if __name__ == "__main__":
         trial_dirname_creator=hypertuner.shorten_trial_dirname,
     )
 
+
     # Print the best result
-    print("Best config: ", analysis.get_best_config(metric="accuracy", mode="max"))
-    print("Best config: ", analysis.get_best_config(metric="recall", mode="max"))
-    print("Best config: ", analysis.get_best_config(metric="f1macro", mode="max"))
+    # print("Best accuracy: ", analysis.get_best_config(metric="accuracy", mode="max"))
+    # print("Best recall: ", analysis.get_best_config(metric="recall", mode="max"))
+    # print("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
+
+    best_result = analysis.get_best_result("accuracy", "max")
+
+    print("Best trial config: {}".format(best_result.config))
+  
+    print("Best trial final validation loss: {}".format(
+        best_result.metrics["loss"]))
+    print("Best trial final validation accuracy: {}".format(
+        best_result.metrics["accuracy"]))
+    print("Best trial final validation recall: {}".format(
+        best_result.get_best_config(metric="recall", mode="max")))
+
+    #hypertuner.test_best_model(best_result, smoke_test=False)
+
     ray.shutdown()

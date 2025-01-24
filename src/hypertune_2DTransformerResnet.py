@@ -9,6 +9,7 @@ from hypertuner import Hypertuner
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
 from settings import base_hypertuner
 from mltrainer.preprocessors import BasePreprocessor
+from logs_loader import *
 
 def hypertune_2DTransformerResnet():
 
@@ -31,18 +32,18 @@ def hypertune_2DTransformerResnet():
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": tune.choice([8, 16, 32,]),  # Batch size specific to the dataset
-        "hidden": tune.choice([64, 128]),
-        "dropout": tune.choice([0.2, 0.3]),
+        "batch": tune.choice([4, 8, 16, 32,]),  # Batch size specific to the dataset
+        "hidden": tune.choice([32, 64]),
+        "dropout": tune.choice([0.2, 0.3, 0.4]),
         "num_layers": tune.randint(2, 5),
         "model_type": "2DTransformerResnet",  # Specify the model type
         #"model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
-        'shape' : (16, 12),
+        'shape' : (8, 24),
         "num_heads": tune.choice([2, 4, 8, 10]),
-       # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
-        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
+        "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
+        #"scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
         "factor": tune.choice([0.2, 0.3, 0.4]),
         "patience": 3,
         

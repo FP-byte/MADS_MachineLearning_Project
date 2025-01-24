@@ -60,11 +60,34 @@ def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
     top_10_df = results_df.nlargest(10, "recallmacro")
     print("Top 10 Results:")
     print(top_10_df.columns)
-    top10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "training_iteration", "factor"]]
+    top10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor"]]
     top10_df.reset_index(drop=True, inplace=True)
     print(top10_df)
 
     return results_df
+
+def evaluate_model(config, model, teststreamer):
+
+    testdata = teststreamer.stream()
+    for _ in range(len(teststreamer)):
+        X, y = next(testdata)
+        
+        yhat = model(X)
+        yhat = yhat.argmax(dim=1) # we get the one with the highest probability
+        y_pred.append(yhat.cpu().tolist())
+        y_true.append(y.cpu().tolist())
+
+    yhat = [x for y in y_pred for x in y]
+    y = [x for y in y_true for x in y]
+
+    cfm = confusion_matrix(y, yhat)
+    cfm = cfm / np.sum(cfm, axis=1, keepdims=True)
+    print(config)
+    print(f'test_results={np.round(cfm[cfm > 0.3], 3)}')
+    plot = sns.heatmap(cfm, annot=cfm, fmt=".3f")
+    plot.set(xlabel="Predicted", ylabel="Target")
+    plt.show()
+    plt.savefig(f"confusion_matrix_{config['model_type']}.png")
 
 if __name__ == "__main__":
     load_tunelogs_data()
