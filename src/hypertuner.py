@@ -152,8 +152,8 @@ class Hypertuner:
             optimizer=torch.optim.Adam,
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
-            #scheduler=config.get("scheduler"),
-            scheduler=hypertuner.scheduler,
+            scheduler=config.get("scheduler"),
+            #scheduler=hypertuner.scheduler,
             #device=device,
         )
 
@@ -179,7 +179,8 @@ class Hypertuner:
             logger.info(f"Created {tune_dir}")
 
         #load train and test files
-        trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+       # trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+        trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
         return trainfile, testfile
 

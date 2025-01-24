@@ -31,9 +31,9 @@ def hypertune_2DTransformerResnet():
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": tune.choice([8, 16, 32, 64]),  # Batch size specific to the dataset
+        "batch": tune.choice([8, 16, 32,]),  # Batch size specific to the dataset
         "hidden": tune.choice([64, 128]),
-        "dropout": tune.uniform(0.2, 0.4),
+        "dropout": tune.choice([0.2, 0.3]),
         "num_layers": tune.randint(2, 5),
         "model_type": "2DTransformerResnet",  # Specify the model type
         #"model_type": tune.choice(["2DCNN", "2DCNNResnet"]),  # Specify the model type
