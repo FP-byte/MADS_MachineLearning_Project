@@ -24,7 +24,7 @@ import tempfile
 
 
 class Hypertuner:
-    def __init__(self, settings_hypertuner: Dict, config: Dict):
+    def __init__(self, config: Dict):
         """
         Hypertuner class to handle training with Ray Tune for hyperparameter optimization.
 
@@ -32,15 +32,16 @@ class Hypertuner:
             settings_hypertuner (Dict): General settings for the hypertuner.
             config (Dict): Hyperparameter configuration to tune.
         """
-        self.NUM_SAMPLES = settings_hypertuner.get("NUM_SAMPLES", 10)
-        self.MAX_EPOCHS = settings_hypertuner.get("MAX_EPOCHS", 15)
-        self.device = settings_hypertuner.get("device", "cpu")
-        self.accuracy = settings_hypertuner.get("accuracy", Accuracy())
-        self.f1micro = settings_hypertuner.get("f1micro", F1Score(average='micro'))
-        self.f1macro = settings_hypertuner.get("f1macro", F1Score(average='macro'))
-        self.precision = settings_hypertuner.get("precision", Precision('macro'))
-        self.recall = settings_hypertuner.get("recall", Recall('macro'))
-        self.reporttypes = settings_hypertuner.get("reporttypes", [ReportTypes.RAY, ReportTypes.TENSORBOARD, ReportTypes.MLFLOW])
+
+        self.NUM_SAMPLES = base_hypertuner.NUM_SAMPLES
+        self.MAX_EPOCHS = base_hypertuner.MAX_EPOCHS      
+        self.accuracy = base_hypertuner.accuracy
+        self.f1micro = base_hypertuner.f1micro
+        self.f1macro = base_hypertuner.f1macro
+        self.precision = base_hypertuner.precision
+        self.recall = base_hypertuner.recall
+        self.reporttypes = base_hypertuner.reporttypes
+        self.device = base_hypertuner.device
         self.config = config
 
         self.search = HyperOptSearch()
@@ -206,7 +207,8 @@ class Hypertuner:
             logger.warning("Training failed, error: {e}")
             raise
   
-    def load_datafiles(self, data_dir: Path):
+    def load_datafiles(self):
+        data_dir = self.config["data_dir"]
         configfile = Path("config.toml")
 
         with configfile.open('rb') as f:
@@ -274,25 +276,11 @@ if __name__ == "__main__":
     #ray.init()
     ray.init(logging_level=logging.WARNING)
     
-    data_dir = base_hypertuner.data_dir
-    settings_hypertuner = {       
-        #"NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        #"MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
-        "NUM_SAMPLES": 1,
-        "MAX_EPOCHS": 1,
-        "device": base_hypertuner.device,
-        "accuracy": base_hypertuner.accuracy,            
-        "f1micro": base_hypertuner.f1micro,
-        "f1macro": base_hypertuner.f1macro,
-        "precision": base_hypertuner.precision,
-        "recall" : base_hypertuner.recall,
-        "reporttypes": base_hypertuner.reporttypes,
-    }
 
     config = {
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
-        "data_dir": data_dir,
+        "data_dir": base_hypertuner.data_dir,
         "batch": tune.choice([32, 48, 60]),  # Batch size specific to the dataset
         "hidden": tune.choice([64, 128, 256]),
         "dropout": tune.uniform(0.1, 0.5),
@@ -310,8 +298,11 @@ if __name__ == "__main__":
         
     }
 
-    hypertuner = Hypertuner(settings_hypertuner, config)
-    config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
+    hypertuner = Hypertuner(config)
+    #test setting
+    hypertuner.MAX_EPOCHS=1
+    hypertuner.NUM_SAMPLES=1
+    config["trainfile"], config["testfile"] = hypertuner.load_datafiles()
 
     analysis = tune.run(
         hypertuner.train,

@@ -15,17 +15,6 @@ def hypertune_Transformer():
     ray.init()
     
     data_dir = base_hypertuner.data_dir
-    settings_hypertuner = {       
-        "NUM_SAMPLES": 15,
-        "MAX_EPOCHS": 30,
-        "device": base_hypertuner.device,
-        "accuracy": base_hypertuner.accuracy,            
-        "f1micro": base_hypertuner.f1micro,
-        "f1macro": base_hypertuner.f1macro,
-        "precision": base_hypertuner.precision,
-        "recall" : base_hypertuner.recall,
-        "reporttypes": base_hypertuner.reporttypes,
-    }
 
     config = {
         "preprocessor": BasePreprocessor,
@@ -35,10 +24,10 @@ def hypertune_Transformer():
         "batch": 16,
         "hidden": tune.choice([64, 128]),
         #"dropout": tune.uniform(0.2, 0.4),
-        dropout: 0.3,
+        "dropout": 0.3,
         "num_layers": tune.randint(2, 5),
         #"model_type": "2DTransformer",  # Specify the model type
-        "model_type": tune.choice(["2DTransformerResnet", "2DTransformer"]),  # Specify the model type
+        "model_type": tune.choice(["2DTransformerResnet", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),
@@ -50,8 +39,11 @@ def hypertune_Transformer():
         "patience": 2,       
     }
 
-    hypertuner = Hypertuner(settings_hypertuner, config)
-    config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
+    hypertuner = Hypertuner(config)
+    hypertuner.NUM_SAMPLES=15
+    hypertuner.MAX_EPOCHS=40
+    
+    config["trainfile"], config["testfile"] = hypertuner.load_datafiles()
     
 
     analysis = tune.run(

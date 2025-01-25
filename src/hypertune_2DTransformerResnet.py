@@ -18,7 +18,7 @@ def hypertune_2DTransformerResnet():
     data_dir = base_hypertuner.data_dir
     settings_hypertuner = {       
         "NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        "MAX_EPOCHS": 20,
+        "MAX_EPOCHS": 30,
         "device": base_hypertuner.device,
         "accuracy": base_hypertuner.accuracy,            
         "f1micro": base_hypertuner.f1micro,
@@ -32,8 +32,8 @@ def hypertune_2DTransformerResnet():
         "preprocessor": BasePreprocessor,
         "tune_dir": base_hypertuner.tune_dir,
         "data_dir": data_dir,
-        "batch": tune.choice([4, 8, 16, 32,]),  # Batch size specific to the dataset
-        "hidden": tune.choice([32, 64]),
+        "batch": tune.choice([8, 16, 32]),  # Batch size specific to the dataset
+        "hidden": tune.choice([16, 32, 64]),
         "dropout": tune.choice([0.2, 0.3, 0.4]),
         "num_layers": tune.randint(2, 5),
         "model_type": "2DTransformerResnet",  # Specify the model type
@@ -41,10 +41,10 @@ def hypertune_2DTransformerResnet():
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (8, 24),
-        "num_heads": tune.choice([2, 4, 8, 10]),
-        "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
-        #"scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": tune.choice([0.2, 0.3, 0.4]),
+        "num_heads": tune.choice([2, 4, 8, 16]),
+        #"scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
+        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
+        "factor": tune.choice([0,1, 0.2, 0.3, 0.4]),
         "patience": 3,
         
     }
