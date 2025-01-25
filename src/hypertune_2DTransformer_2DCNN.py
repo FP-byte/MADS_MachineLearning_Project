@@ -29,13 +29,14 @@ def hypertune_Transformer():
         #"model_type": "2DTransformer",  # Specify the model type
         "model_type": tune.choice(["2DTransformerResnet", "2DCNNResnet"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
+
         'num_classes' : 5,
         'shape' : (16, 12),
         #"num_heads": tune.choice([4, 8]),
         "num_heads": 8,
         #"scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.CosineAnnealingLR]),
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau, # using tuner scheduler
-        "factor": tune.choice([0.2, 0.3]),
+        "factor": tune.choice([0.1, 0.2, 0.3]),
         "patience": 2,       
     }
 

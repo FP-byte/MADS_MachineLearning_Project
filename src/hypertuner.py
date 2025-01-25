@@ -325,7 +325,10 @@ if __name__ == "__main__":
     # print("Best recall: ", analysis.get_best_config(metric="recall", mode="max"))
     # print("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
 
-    best_result = analysis.get_best_result("accuracy", "max")
+
+    best_result = analysis.get_best_trial("accuracy", "max")
+    best_result = analysis.get_best_trial("recall", "max")
+    print(best_result)
 
     print("Best trial config: {}".format(best_result.config))
   
