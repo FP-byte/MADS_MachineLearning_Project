@@ -408,14 +408,14 @@ class Transformer1DResnet(nn.Module):
         x = self.out(x)
         return x
 
-# Transformer with ResNet block and SE block
+# Transformer with ResNet block and SE block #werkt niet
 class Transformer1DResnetSE(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
 
-        # Convolutional Layer
+        # Convolutional Layer (1D Conv)
         self.conv1d = nn.Conv1d(
-            in_channels=1,
+            in_channels=1,  # Ensure this matches your input tensor channels
             out_channels=config["hidden"],
             kernel_size=3,
             stride=2,
@@ -427,6 +427,13 @@ class Transformer1DResnetSE(nn.Module):
 
         # Squeeze-and-Excitation Block
         self.se_block = SqueezeExcite1D(config["hidden"])
+
+        # Multi-Head Attention Layer
+        self.multihead_attention = nn.MultiheadAttention(
+            embed_dim=config["hidden"],
+            num_heads=config["num_heads"],
+            dropout=config["dropout"]
+        )
 
         # Positional Encoding for Transformer input
         self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
@@ -443,8 +450,13 @@ class Transformer1DResnetSE(nn.Module):
         self.out = nn.Linear(config["hidden"], config["num_classes"])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Ensure x is in the correct shape (batch_size, 1, seq_len)
+        #x = x.view(x.size(0), 1, -1)  # Reshape to (batch_size, 1, seq_len)
+        x = self.conv1d(x.transpose(1, 2)) # flip channels and seq_len for conv1d
+
         # Apply Conv1D to the input (shape: batch, channels, seq_len)
-        x = self.conv1d(x)  # (batch, hidden, seq_len)
+        #x = self.conv1d(x)  # (batch, hidden, seq_len)
+        print(f' after conv {x.shape}') #  after conv torch.Size([32, 128, 96])
         
         # Apply ResNet Block (skip connection + convolution)
         x = self.resnet_block(x)
@@ -452,15 +464,25 @@ class Transformer1DResnetSE(nn.Module):
         # Apply Squeeze-and-Excitation block (Channel recalibration)
         x = self.se_block(x)
         
+        # Reshape to match the input requirements for MultiHeadAttention (seq_len, batch, hidden)
+        x = x.transpose(1, 2)  # (batch, hidden, seq_len) -> (seq_len, batch, hidden)
+        
+        # Apply Multi-Head Attention
+        # self.multihead_attention expects input shape (seq_len, batch, embed_dim)
+        attn_output, _ = self.multihead_attention(x, x, x)  # (seq_len, batch, hidden)
+        
+        # Add the attention output to the original input (Residual connection)
+        x = x + attn_output  # Skip connection for attention
+        
         # Apply positional encoding
-        x = self.pos_encoder(x.transpose(1, 2))  # (batch, seq_len, channels)
+        x = self.pos_encoder(x)  # (seq_len, batch, hidden)
         
         # Apply multiple transformer blocks
         for transformer_block in self.transformer_blocks:
             x = transformer_block(x)
 
         # Final output layer
-        x = x.mean(dim=1)  # Global Average Pooling (batch, hidden)
+        x = x.mean(dim=0)  # Global Average Pooling (seq_len, batch, hidden) -> (batch, hidden)
         x = self.out(x)  # (batch, num_classes)
         
         return x
