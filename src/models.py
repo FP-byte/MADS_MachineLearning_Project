@@ -3,6 +3,7 @@ import math
 import torch
 from loguru import logger
 from torch import Tensor, nn
+import torch.nn.functional as F
 
 
 class ConvBlock(nn.Module):
@@ -146,7 +147,86 @@ class Transformer(nn.Module):
         x = self.out(x)
         return x
 
-class GRUmodel(nn.Module):
+class SqueezeExcite1D(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(SqueezeExcite1D, self).__init__()
+        # Squeeze: Global Average Pooling
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        
+        # Excite: Two fully connected layers (bottleneck architecture)
+        self.fc1 = nn.Linear(in_channels, in_channels // reduction)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(in_channels // reduction, in_channels)
+        
+        # Sigmoid activation to get attention weights
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # Squeeze
+        x_se = self.global_avg_pool(x)  # (batch, channels, 1)
+        x_se = x_se.view(x_se.size(0), -1)  # Flatten to (batch, channels)
+        
+        # Excite
+        x_se = self.fc1(x_se)  # (batch, channels // reduction)
+        x_se = self.relu(x_se)
+        x_se = self.fc2(x_se)  # (batch, channels)
+        
+        # Scale input feature map with the learned attention weights
+        x_se = self.sigmoid(x_se).unsqueeze(-1)  # (batch, channels, 1)
+        
+        return x * x_se  # Apply attention (channel recalibration)
+
+class Transformer1DSE(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+
+        # Convolutional Layer
+        self.conv1d = nn.Conv1d(
+            in_channels=1,
+            out_channels=config["hidden"],
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+        
+        # Squeeze-and-Excitation Block
+        self.se_block = SqueezeExcite1D(config["hidden"])
+
+        # Positional Encoding for Transformer input
+        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+
+        # Create multiple transformer blocks
+        self.transformer_blocks = nn.ModuleList(
+            [
+                TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
+                for _ in range(config["num_blocks"])
+            ]
+        )
+
+        # Final output layer
+        self.out = nn.Linear(config["hidden"], config["num_classes"])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Apply Conv1D to the input (shape: batch, channels, seq_len)
+        x = self.conv1d(x)  # (batch, hidden, seq_len)
+        
+        # Apply Squeeze-and-Excitation block (Channel recalibration)
+        x = self.se_block(x)
+        
+        # Apply positional encoding
+        x = self.pos_encoder(x.transpose(1, 2))  # (batch, seq_len, channels)
+        
+        # Apply multiple transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Final output layer
+        x = x.mean(dim=1)  # Global Average Pooling (batch, hidden)
+        x = self.out(x)  # (batch, num_classes)
+        
+        return x
+
+class GRU(nn.Module):
     def __init__(
         self,
         config: dict,
@@ -154,7 +234,7 @@ class GRUmodel(nn.Module):
         super().__init__()
         print(config)
         self.rnn = nn.GRU(
-            input_size=config["input_size"],
+            input_size=config["input"],
             hidden_size=int(config["hidden"]),
             dropout=config["dropout"],
             batch_first=True,
@@ -252,9 +332,9 @@ class Transformer2D(nn.Module):
 
 
 # ResNet Block for 1D convolutions
-class ResNetBlock(nn.Module):
+class ResNetBlock1D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
-        super(ResNetBlock, self).__init__()
+        super(ResNetBlock1D, self).__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
         self.bn1 = nn.BatchNorm1d(out_channels)
         self.relu = nn.ReLU(inplace=True)
@@ -268,36 +348,6 @@ class ResNetBlock(nn.Module):
             self.shortcut = nn.Sequential(
                 nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
                 nn.BatchNorm1d(out_channels)
-            )
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += self.shortcut(x)  # Add the shortcut (skip connection)
-        out = self.relu(out)
-        return out
-
-
-
-
-class ResNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
-        super(ResNetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        
-        # Identity shortcut connection, could be a 1x1 convolution to match dimensions
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
-                nn.BatchNorm2d(out_channels)
             )
 
     def forward(self, x):
@@ -325,7 +375,7 @@ class Transformer1DResnet(nn.Module):
         self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
 
         # Adding a ResNet Block after the convolution layer
-        self.resnet_block = ResNetBlock(config["hidden"], config["hidden"])
+        self.resnet_block = ResNetBlock1D(config["hidden"], config["hidden"])
 
         # Create multiple transformer blocks
         self.transformer_blocks = nn.ModuleList(
@@ -356,6 +406,136 @@ class Transformer1DResnet(nn.Module):
 
         x = x.mean(dim=1)  # Global Average Pooling
         x = self.out(x)
+        return x
+
+# Transformer with ResNet block and SE block
+class Transformer1DResnetSE(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+
+        # Convolutional Layer
+        self.conv1d = nn.Conv1d(
+            in_channels=1,
+            out_channels=config["hidden"],
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+        
+        # ResNet Block
+        self.resnet_block = ResNetBlock1D(config["hidden"], config["hidden"])
+
+        # Squeeze-and-Excitation Block
+        self.se_block = SqueezeExcite1D(config["hidden"])
+
+        # Positional Encoding for Transformer input
+        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+
+        # Create multiple transformer blocks
+        self.transformer_blocks = nn.ModuleList(
+            [
+                TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
+                for _ in range(config["num_blocks"])
+            ]
+        )
+
+        # Final output layer
+        self.out = nn.Linear(config["hidden"], config["num_classes"])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Apply Conv1D to the input (shape: batch, channels, seq_len)
+        x = self.conv1d(x)  # (batch, hidden, seq_len)
+        
+        # Apply ResNet Block (skip connection + convolution)
+        x = self.resnet_block(x)
+        
+        # Apply Squeeze-and-Excitation block (Channel recalibration)
+        x = self.se_block(x)
+        
+        # Apply positional encoding
+        x = self.pos_encoder(x.transpose(1, 2))  # (batch, seq_len, channels)
+        
+        # Apply multiple transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Final output layer
+        x = x.mean(dim=1)  # Global Average Pooling (batch, hidden)
+        x = self.out(x)  # (batch, num_classes)
+        
+        return x
+
+class Transformer1DResnetSEwithAttention(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+
+        # Convolutional Layer (1D Conv)
+        self.conv1d = nn.Conv1d(
+            in_channels=1,
+            out_channels=config["hidden"],
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+        
+        # ResNet Block
+        self.resnet_block = ResNetBlock1D(config["hidden"], config["hidden"])
+
+        # Squeeze-and-Excitation Block
+        self.se_block = SqueezeExcite1D(config["hidden"])
+
+        # Multi-Head Attention Layer
+        self.multihead_attention = nn.MultiheadAttention(
+            embed_dim=config["hidden"],
+            num_heads=config["num_heads"],
+            dropout=config["dropout"]
+        )
+
+        # Positional Encoding for Transformer input
+        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+
+        # Create multiple transformer blocks
+        self.transformer_blocks = nn.ModuleList(
+            [
+                TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
+                for _ in range(config["num_blocks"])
+            ]
+        )
+
+        # Final output layer
+        self.out = nn.Linear(config["hidden"], config["num_classes"])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Apply Conv1D to the input (shape: batch, channels, seq_len)
+        x = self.conv1d(x)  # (batch, hidden, seq_len)
+        
+        # Apply ResNet Block (skip connection + convolution)
+        x = self.resnet_block(x)
+        
+        # Apply Squeeze-and-Excitation block (Channel recalibration)
+        x = self.se_block(x)
+        
+        # Reshape to match the input requirements for MultiHeadAttention (seq_len, batch, hidden)
+        x = x.transpose(1, 2)  # (batch, hidden, seq_len) -> (seq_len, batch, hidden)
+        
+        # Apply Multi-Head Attention
+        # self.multihead_attention expects input shape (seq_len, batch, embed_dim)
+        attn_output, _ = self.multihead_attention(x, x, x)  # (seq_len, batch, hidden)
+        
+        # Add the attention output to the original input (Residual connection)
+        x = x + attn_output  # Skip connection for attention
+        
+        # Apply positional encoding
+        x = self.pos_encoder(x)  # (seq_len, batch, hidden)
+        
+        # Apply multiple transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Final output layer
+        x = x.mean(dim=0)  # Global Average Pooling (seq_len, batch, hidden) -> (batch, hidden)
+        x = self.out(x)  # (batch, num_classes)
+        
         return x
 
 # 2D CNN WITH RESNET BLOCKS
@@ -460,11 +640,11 @@ class Transformer2DResNet(nn.Module):
             nn.Linear(config["hidden"] // 2, config["num_classes"]),
         )
 
-# - streamer:         (batch, seq_len, channels)
-# - conv1d:           (batch, channels, seq_len)
-# - pos_encoding:     (batch, seq_len, channels)
-# - gru (batchfirst): (batch, seq_len, channels)
-# - attention:        (batch, seq_len, channels)
+    # - streamer:         (batch, seq_len, channels)
+    # - conv1d:           (batch, channels, seq_len)
+    # - pos_encoding:     (batch, seq_len, channels)
+    # - gru (batchfirst): (batch, seq_len, channels)
+    # - attention:        (batch, seq_len, channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
        # print("input", x.shape)
@@ -488,4 +668,178 @@ class Transformer2DResNet(nn.Module):
 
         # Final classification layers
         x = self.out(x)  # (batch, num_classes)
+        return x
+
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(SEBlock, self).__init__()
+        self.fc1 = nn.Linear(channel, channel // reduction)
+        self.fc2 = nn.Linear(channel // reduction, channel)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # Squeeze: Global Average Pooling
+        b, c, _, _ = x.size()  # batch_size, channels, height, width
+        squeeze = F.adaptive_avg_pool2d(x, (1, 1))  # (b, c, 1, 1)
+        squeeze = squeeze.view(b, c)  # Flatten to (b, c)
+
+        # Excitation: Fully connected layers + sigmoid activation
+        excitation = F.relu(self.fc1(squeeze))
+        excitation = self.sigmoid(self.fc2(excitation)).view(b, c, 1, 1)  # (b, c, 1, 1)
+
+        # Recalibration: Re-weight the original feature maps
+        return x * excitation.expand_as(x)
+
+
+class Transformer2DResNetSE(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+
+        # Initial Conv2D Layer
+        self.conv2d = nn.Conv2d(
+            in_channels=1,  # Adjusted input channels if needed
+            out_channels=config["hidden"],
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+
+        # ResNet Block (2D)
+        self.resnet_block = ResNetBlock2D(config["hidden"], config["hidden"])
+
+        # Squeeze-and-Excitation (SE) block after ResNet block
+        self.se_block = SEBlock(config["hidden"])
+
+        # Positional Encoding for Transformer input
+        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+
+        # Create multiple transformer blocks
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
+            for _ in range(config["num_blocks"])
+        ])
+
+        # Final output layers
+        self.out = nn.Sequential(
+            nn.Linear(config["hidden"], config["hidden"] // 2),
+            nn.ReLU(),
+            nn.Dropout(config["dropout"]),
+            nn.Linear(config["hidden"] // 2, config["num_classes"]),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Reshape input to 2D (batch, channels, height, width)
+        x = x.view(x.size(0), 1, 16, 12)
+
+        # Apply Conv2D to the input
+        x = self.conv2d(x)  # (batch, hidden, height, width)
+
+        # Apply ResNet Block (2D)
+        x = self.resnet_block(x)  # (batch, hidden, height//2, width//2)
+
+        # Apply SE Block to recalibrate features
+        x = self.se_block(x)
+
+        # Apply positional encoding (convert back to (batch, seq_len, channels))
+        x = self.pos_encoder(x.flatten(2).transpose(1, 2))  # Flatten and transpose to (batch, seq_len, channels)
+
+        # Apply multiple transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Global Average Pooling
+        x = x.mean(dim=1)  # (batch, hidden)
+
+        # Final classification layers
+        x = self.out(x)  # (batch, num_classes)
+        return x
+
+class MultiHeadAttentionWithSE(nn.Module):
+    def __init__(self, hidden_dim, num_heads, reduction=16, dropout=0.1):
+        super(MultiHeadAttentionWithSE, self).__init__()
+        
+        # Multi-Head Attention layer
+        self.attn = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout)
+        
+        # Squeeze-and-Excitation block
+        self.se_block = SqueezeExcitation(hidden_dim, reduction)
+
+        # Feed-forward network
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.Dropout(dropout),
+        )
+        
+        # Layer Normalization
+        self.layer_norm1 = nn.LayerNorm(hidden_dim)
+        self.layer_norm2 = nn.LayerNorm(hidden_dim)
+        
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # Attention mechanism with residual connection and layer normalization
+        attn_output, _ = self.attn(x, x, x)  # (batch, seq_len, hidden)
+        x = self.layer_norm1(x + self.dropout(attn_output))  # (batch, seq_len, hidden)
+        
+        # Apply Squeeze-and-Excitation block to recalibrate the channel attention
+        x = self.se_block(x)  # Apply SE block on the output of attention
+
+        # Feed-forward network with residual connection and layer normalization
+        ffn_output = self.ffn(x)
+        x = self.layer_norm2(x + self.dropout(ffn_output))
+
+class Transformer2DResNetWithAttention(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super(Transformer2DResNetWithAttention, self).__init__()
+
+        self.conv2d = nn.Conv2d(in_channels=1, out_channels=config["hidden"], kernel_size=3, stride=2, padding=1)
+
+        # Adding ResNet Block (already defined in your code)
+        self.resnet_block = ResNetBlock2D(config["hidden"], config["hidden"])
+
+        # Add the SE block after the ResNet Block
+        self.se_block = SEBlock(config["hidden"])
+
+        # Transformer-related components
+        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
+            for _ in range(config["num_blocks"])
+        ])
+
+        # Final output layers
+        self.out = nn.Sequential(
+            nn.Linear(config["hidden"], config["hidden"] // 2),
+            nn.ReLU(),
+            nn.Dropout(config["dropout"]),
+            nn.Linear(config["hidden"] // 2, config["num_classes"]),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.view(x.size(0), 1, 16, 12)  # Reshape to 2D (batch, channels, height, width)
+
+        # Apply Conv2D
+        x = self.conv2d(x)
+
+        # Apply ResNet Block
+        x = self.resnet_block(x)
+
+        # Apply Squeeze-and-Excite Block
+        x = self.se_block(x)
+
+        # Apply positional encoding and flatten the input for transformer
+        x = self.pos_encoder(x.flatten(2).transpose(1, 2))
+
+        # Pass through transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        # Global average pooling
+        x = x.mean(dim=1)
+
+        # Final output layer
+        x = self.out(x)
         return x

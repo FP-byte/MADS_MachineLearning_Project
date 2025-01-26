@@ -36,7 +36,7 @@ def hypertune_Transformer1D():
         "dropout": tune.uniform(0.1, 0.5),
         "num_layers": tune.randint(2, 5),
         #"model_type": "2DCNNResnet",  # Specify the model type
-        "model_type": tune.choice(["1DTransformerResnet", "2DTransformerResnet"]),  # Specify the model type
+        "model_type": tune.choice(["1DTransformerResnet", "1DTransformerResnet", "1DTransformerResnetSE","1DTransformerResNetWithAttention"]),  # Specify the model type
         'num_blocks' : tune.randint(1, 5),
         'num_classes' : 5,
         'shape' : (16, 12),

@@ -125,7 +125,7 @@ class Hypertuner:
 
         print(f"Training with model: {config['model_type']}")
         # load the data based on the configuration
-        if config["model_type"] in ["1DTransformer", "1DTransformerResnet"]:
+        if config["model_type"] in ["1DTransformer", "1DTransformerResnet", "1D"]:
             print("Loading 1D data")
             traindataset = datasets.HeartDataset1D(trainfile, target="target")
             testdataset = datasets.HeartDataset1D(testfile, target="target")
@@ -255,18 +255,30 @@ class Hypertuner:
         elif model_type == "2DCNNResnet":
             from models import CNN2DResNet
             return CNN2DResNet(config)
-        elif model_type == "1DTransformer":
-            from models import Transformer
-            return Transformer(config)
         elif model_type == "2DTransformer":
             from models import Transformer2D
             return Transformer2D(config)
+        elif model_type == "1DTransformer":
+            from models import Transformer
+            return Transformer(config)
         elif model_type == "1DTransformerResnet":
             from models import Transformer1DResnet
             return Transformer1DResnet(config)
+        elif model_type == "1DTransformerResnetSE":
+            from models import Transformer1DResnetSE
+            return Transformer1DResnetSE(config)
+        elif model_type == "1DTransformerResnetSEwithAttention":
+            from models import Transformer1DResnetSEwithAttention
+            return Transformer1DResnetSEwithAttention(config)       
         elif model_type == "2DTransformerResnet":
             from models import Transformer2DResNet
             return Transformer2DResNet(config)
+        elif model_type == "2DTransformerResnetSE":
+            from models import Transformer2DResNetSE
+            return Transformer2DResNetSE(config)
+        elif model_type == "2DTransformerResNetWithAttention":
+            from models import Transformer2DResNetWithAttention
+            return Transformer2DResNetWithAttention(config)
         else:
             raise ValueError(f"Unsupported model type: {model_type}")
 

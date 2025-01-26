@@ -13,7 +13,7 @@ from logs_loader import *
 
 def hypertune_2DTransformerResnet():
 
-    ray.init()
+    ray.init() 
     
     config = {
         "preprocessor": BasePreprocessor,
@@ -31,7 +31,7 @@ def hypertune_2DTransformerResnet():
         'num_blocks' : tune.randint(1, 5),
         "num_blocks": 3,
         'num_classes' : 5,
-        'shape' : (8, 24),
+        'shape' : (12, 16),
         #"num_heads": tune.choice([2, 4, 8, 16]),
         "num_heads": 8,
         #"scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
