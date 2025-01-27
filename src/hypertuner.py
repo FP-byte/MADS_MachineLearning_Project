@@ -17,7 +17,7 @@ from ray.tune.schedulers import AsyncHyperBandScheduler
 from mads_datasets import DatasetFactoryProvider, DatasetType
 from metrics import Accuracy, F1Score, Precision, Recall
 import datasets
-from settings import base_hypertuner
+from settings import base_hypertuner, modelnames, config_param
 from loguru import logger
 import logging
 import tempfile
@@ -32,6 +32,7 @@ class Hypertuner:
             settings_hypertuner (Dict): General settings for the hypertuner.
             config (Dict): Hyperparameter configuration to tune.
         """
+        print("hypertuner started")
 
         self.NUM_SAMPLES = base_hypertuner.NUM_SAMPLES
         self.MAX_EPOCHS = base_hypertuner.MAX_EPOCHS      
@@ -125,13 +126,13 @@ class Hypertuner:
 
         print(f"Training with model: {config['model_type']}")
         # load the data based on the configuration
-        if config["model_type"] in ["1DTransformer", "1DTransformerResnet", "1D"]:
-            print("Loading 1D data")
-            traindataset = datasets.HeartDataset1D(trainfile, target="target")
-            testdataset = datasets.HeartDataset1D(testfile, target="target")
+       # if config["model_type"] in ["1DTransformer", "1DTransformerResnet", "GRU", "AttentionGRU", "1DTransformerResnetSE", "1DTransformerResnetSEwithAttention"]:
+        traindataset = datasets.HeartDataset1D(trainfile, target="target")
+        testdataset = datasets.HeartDataset1D(testfile, target="target")
 
 
-        if config["model_type"] in ["2DTransformer", "2DTransformerResnet", "2DCNNResnet"]:
+        if config["model_type"] in ["2DTransformer", "2DTransformerResnet", "2DCNNResnet", "2DTransformerResnetSE", "2DTransformerResnetWithAttention", "2DCNN"]:
+
             print("Loading 2D data")            
             traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config["shape"])
             testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config["shape"])
@@ -159,8 +160,8 @@ class Hypertuner:
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
             #scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
-            scheduler_kwargs={"factor": 0.3, "patience": 2}, #hypertuning shows default values work best
-            earlystop_kwargs=None,
+            scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
+            earlystop_kwargs={"patience": config['earlystopping_patience']},
         )
         if config.get("scheduler") == torch.optim.lr_scheduler.ExponentialLR:
             print("Using OneCycleLR")
@@ -191,7 +192,7 @@ class Hypertuner:
             model=model,
             settings=trainersettings,
             loss_fn=torch.nn.CrossEntropyLoss(),
-            optimizer=torch.optim.Adam,
+            optimizer=config['optimizer'],
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
             scheduler=config.get("scheduler"),
@@ -221,7 +222,8 @@ class Hypertuner:
             logger.info(f"Created {tune_dir}")
 
         #load train and test files
-        trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+        trainfile = data_dir / (paths['arrhythmia_smote'] + '_train.parq')
+       # trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
        # trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
 
@@ -236,7 +238,7 @@ class Hypertuner:
             config (dict): A dictionary containing the configuration parameters. 
                            It must include the key "model_type" which specifies 
                            the type of model to initialize. Supported model types 
-                           are "2DCNN", "2DCNNResnet", "1DTransormer", "2DTransformer", 
+                           are "2DCNN", "2DCNNResnet", "1DTransformer", "2DTransformer", 
                            "1DTransformerResnet", and "2DTransformerResnet".
 
         Returns:
@@ -245,42 +247,18 @@ class Hypertuner:
         Raises:
             ValueError: If the specified model type is not supported.
         """
-        """Initialize and return the model based on the configuration."""
-        
         model_type = config.get("model_type", "2DCNN")
-
-        if model_type == "2DCNN":
-            from models import CNN
-            return CNN(config)
-        elif model_type == "2DCNNResnet":
-            from models import CNN2DResNet
-            return CNN2DResNet(config)
-        elif model_type == "2DTransformer":
-            from models import Transformer2D
-            return Transformer2D(config)
-        elif model_type == "1DTransformer":
-            from models import Transformer
-            return Transformer(config)
-        elif model_type == "1DTransformerResnet":
-            from models import Transformer1DResnet
-            return Transformer1DResnet(config)
-        elif model_type == "1DTransformerResnetSE":
-            from models import Transformer1DResnetSE
-            return Transformer1DResnetSE(config)
-        elif model_type == "1DTransformerResnetSEwithAttention":
-            from models import Transformer1DResnetSEwithAttention
-            return Transformer1DResnetSEwithAttention(config)       
-        elif model_type == "2DTransformerResnet":
-            from models import Transformer2DResNet
-            return Transformer2DResNet(config)
-        elif model_type == "2DTransformerResnetSE":
-            from models import Transformer2DResNetSE
-            return Transformer2DResNetSE(config)
-        elif model_type == "2DTransformerResNetWithAttention":
-            from models import Transformer2DResNetWithAttention
-            return Transformer2DResNetWithAttention(config)
-        else:
+        model_classes = modelnames.__dict__
+        if model_type not in model_classes:
             raise ValueError(f"Unsupported model type: {model_type}")
+
+        
+
+        model_class = model_classes[model_type]
+        module = __import__("models", fromlist=[model_class])
+       
+        model = getattr(module, model_class)
+        return model(config)
 
 
 if __name__ == "__main__":
@@ -290,31 +268,30 @@ if __name__ == "__main__":
     
 
     config = {
-        "preprocessor": BasePreprocessor,
-        "tune_dir": base_hypertuner.tune_dir,
-        "data_dir": base_hypertuner.data_dir,
-        "batch": tune.choice([32, 48, 60]),  # Batch size specific to the dataset
-        "hidden": tune.choice([64, 128, 256]),
-        "dropout": tune.uniform(0.1, 0.5),
-        "num_layers": tune.randint(2, 5),
-        #"model_type": "2DCNNResnet",  # Specify the model type
-        "model_type": "2DTransformerResnet",  # Specify the model type
-        'num_blocks' : tune.randint(1, 5),
-        'num_classes' : 5,
-        'shape' : (16, 12),
-        "num_heads": tune.choice([1, 2, 4, 8]),
-       # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
-        "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": 0.4,
-        "patience": 2,
-        
+        config_param.preprocessor: BasePreprocessor,
+        config_param.optimizer: torch.optim.Adam,
+        config_param.tune_dir: base_hypertuner.tune_dir,
+        config_param.data_dir: base_hypertuner.data_dir,
+        config_param.batch: tune.choice([32, 48, 60]),  # Batch size specific to the dataset
+        config_param.hidden: tune.choice([64, 128, 256]),
+        config_param.dropout: tune.uniform(0.1, 0.5),
+        config_param.num_layers: tune.randint(2, 5),
+        config_param.model_type: modelnames.Transformer1DResnet,  # Specify the model type
+        config_param.num_blocks: tune.randint(1, 5),
+        config_param.num_classes: 5,
+        config_param.shape: (16, 12),
+        config_param.num_heads: tune.choice([1, 2, 4, 8]),
+        config_param.scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
+        config_param.factor: 0.4,
+        config_param.patience: 2,
+        config_param.earlystopping_patience: 8
     }
 
     hypertuner = Hypertuner(config)
     #test setting
     hypertuner.MAX_EPOCHS=1
     hypertuner.NUM_SAMPLES=1
-    config["trainfile"], config["testfile"] = hypertuner.load_datafiles()
+    config[config_param.trainfile], config[config_param.testfile] = hypertuner.load_datafiles()
 
     analysis = tune.run(
         hypertuner.train,
@@ -322,7 +299,7 @@ if __name__ == "__main__":
         metric="Accuracy",
         mode="max",
         progress_reporter=hypertuner.reporter,
-        storage_path=str(config["tune_dir"]),
+        storage_path=str(config[config_param.tune_dir]),
         num_samples=hypertuner.NUM_SAMPLES,
         search_alg=hypertuner.search,
         scheduler=hypertuner.scheduler,
@@ -343,13 +320,6 @@ if __name__ == "__main__":
     print(best_result)
 
     print("Best trial config: {}".format(best_result.config))
-  
-    print("Best trial final validation loss: {}".format(
-        best_result.metrics["loss"]))
-    print("Best trial final validation accuracy: {}".format(
-        best_result.metrics["accuracy"]))
-    print("Best trial final validation recall: {}".format(
-        best_result.get_best_config(metric="recall", mode="max")))
 
     #hypertuner.test_best_model(best_result, smoke_test=False)
 

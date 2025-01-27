@@ -58,8 +58,8 @@ def train(config: Dict):
         train_steps=len(train),  # type: ignore
         valid_steps=len(valid),  # type: ignore
         reporttypes=[ReportTypes.RAY],
-        scheduler_kwargs={"factor": 0.5, "patience": 5},
-        earlystop_kwargs=None,
+        scheduler_kwargs={"factor": 0.2, "patience": 2},
+        earlystop_kwargs={"patience": 8},
     )
 
     # because we set reporttypes=[ReportTypes.RAY]
