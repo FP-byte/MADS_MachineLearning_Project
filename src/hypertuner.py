@@ -139,12 +139,12 @@ class Hypertuner:
    
 
         #Load the datastreamers
-        preprocessor_class = config.get("preprocessor", BasePreprocessor)
+        preprocessor_class = config.get(config_param.preprocessor, BasePreprocessor)
         preprocessor = preprocessor_class()
         
         with FileLock(data_dir / ".lock"):
-            trainstreamer = BaseDatastreamer(traindataset, preprocessor = BasePreprocessor(), batchsize=config["batch"])
-            teststreamer = BaseDatastreamer(testdataset, preprocessor = BasePreprocessor(), batchsize=config["batch"])
+            trainstreamer = BaseDatastreamer(traindataset, preprocessor = BasePreprocessor(), batchsize=config[config_param.batch])
+            teststreamer = BaseDatastreamer(testdataset, preprocessor = BasePreprocessor(), batchsize=config[config_param.batch])
 
 
         # Initialize the model
@@ -159,14 +159,14 @@ class Hypertuner:
             train_steps=len(trainstreamer)//5,
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
-            #scheduler_kwargs={"factor": config['factor'], "patience": config['patience']},
-            scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
-            earlystop_kwargs={"patience": config['earlystopping_patience']},
+            scheduler_kwargs={"factor": config[config_param.factor], "patience": config[config_param.patience]},
+            #scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
+            earlystop_kwargs={"patience": config[config_param.earlystopping_patience]},
         )
-        if config.get("scheduler") == torch.optim.lr_scheduler.ExponentialLR:
+        if config.get(config_param.scheduler) == torch.optim.lr_scheduler.ExponentialLR:
             print("Using OneCycleLR")
-            trainersettings.scheduler_kwargs = {"gamma": config['factor']}
-        if config.get("scheduler") == torch.optim.lr_scheduler.LambdaLR:
+            trainersettings.scheduler_kwargs = {"gamma": config[config_param.factor]}
+        if config.get(config_param.scheduler) == torch.optim.lr_scheduler.LambdaLR:
             # Parameters
             num_warmup_steps = 1000
             num_training_steps = 10000
@@ -256,6 +256,7 @@ class Hypertuner:
 
         model_class = model_classes[model_type]
         module = __import__("models", fromlist=[model_class])
+        logger.info(f"model {model_class} loaded")
        
         model = getattr(module, model_class)
         return model(config)
@@ -272,11 +273,12 @@ if __name__ == "__main__":
         config_param.optimizer: torch.optim.Adam,
         config_param.tune_dir: base_hypertuner.tune_dir,
         config_param.data_dir: base_hypertuner.data_dir,
-        config_param.batch: tune.choice([32, 48, 60]),  # Batch size specific to the dataset
+        config_param.input_gru: 1,
+        config_param.batch: tune.choice([16, 32, 48, 60]),  # Batch size specific to the dataset
         config_param.hidden: tune.choice([64, 128, 256]),
         config_param.dropout: tune.uniform(0.1, 0.5),
         config_param.num_layers: tune.randint(2, 5),
-        config_param.model_type: modelnames.Transformer1DResnet,  # Specify the model type
+        config_param.model_type: modelnames.GRU,  # Specify the model type
         config_param.num_blocks: tune.randint(1, 5),
         config_param.num_classes: 5,
         config_param.shape: (16, 12),
@@ -284,13 +286,14 @@ if __name__ == "__main__":
         config_param.scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
         config_param.factor: 0.4,
         config_param.patience: 2,
-        config_param.earlystopping_patience: 8
+        config_param.earlystopping_patience:8,
+        
     }
 
     hypertuner = Hypertuner(config)
     #test setting
-    hypertuner.MAX_EPOCHS=1
-    hypertuner.NUM_SAMPLES=1
+    hypertuner.MAX_EPOCHS=20
+    hypertuner.NUM_SAMPLES=15
     config[config_param.trainfile], config[config_param.testfile] = hypertuner.load_datafiles()
 
     analysis = tune.run(
@@ -319,7 +322,6 @@ if __name__ == "__main__":
     best_result = analysis.get_best_trial("recall", "max")
     print(best_result)
 
-    print("Best trial config: {}".format(best_result.config))
 
     #hypertuner.test_best_model(best_result, smoke_test=False)
 

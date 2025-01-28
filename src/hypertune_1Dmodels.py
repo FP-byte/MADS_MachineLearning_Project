@@ -6,7 +6,7 @@ from loguru import logger
 from ray import tune
 from hypertuner import Hypertuner
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
-from settings import base_hypertuner
+from settings import base_hypertuner, modelnames
 from mltrainer.preprocessors import BasePreprocessor
 
 def hypertune_1Dmodels():
@@ -25,17 +25,18 @@ def hypertune_1Dmodels():
         "hidden": tune.choice([32, 64, 128, 256]),
         "dropout": tune.uniform(0.1, 0.5),
         "num_layers": tune.randint(2, 5),
-        "model_type": "GRU",  # Specify the model type
-        #"model_type": tune.choice(["1DTransformerResnet", "GRU", "AttentionGRU", "1DTransformerResnetSE","1DTransformerResnetSEwithAttention"]),  # Specify the model type
+        #"model_type": "1DTransformerResnetSE",  # Specify the model type
+        "model_type": tune.choice([modelnames.CNN1DResNet , modelnames.Transformer1DResnet, modelnames.Transformer1DResnetSE]),  # Specify the model type
         'num_blocks' : tune.randint(1, 8),
         'num_classes' : 5,
         'shape' : (16, 12),
         "num_heads": tune.choice([1, 2, 4, 8]),
        # "scheduler": tune.choice([torch.optim.lr_scheduler.ReduceLROnPlateau, torch.optim.lr_scheduler.OneCycleLR]),
         "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau,
-        "factor": tune.choice([0.2, 0.3, 0.4]),
+        "factor": tune.choice([0.1, 0.2, 0.3, 0.4]),
         "patience": 2,
-        'earlystopping_patience': 8
+        'earlystopping_patience': 8,
+        "input_length":192
         
     }
 

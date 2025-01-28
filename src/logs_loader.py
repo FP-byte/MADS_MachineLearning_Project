@@ -136,39 +136,70 @@ def evaluate_model(config, model, teststreamer):
     plt.savefig(f"confusion_matrix_{config['model_type']}.png")
 
 if __name__ == "__main__":
-    settings_hypertuner = {       
-        #"NUM_SAMPLES": base_hypertuner.NUM_SAMPLES,
-        #"MAX_EPOCHS": base_hypertuner.MAX_EPOCHS,
-        "NUM_SAMPLES": 1,
-        "MAX_EPOCHS": 1,
-        "device": base_hypertuner.device,
-        "accuracy": base_hypertuner.accuracy,            
-        "f1micro": base_hypertuner.f1micro,
-        "f1macro": base_hypertuner.f1macro,
-        "precision": base_hypertuner.precision,
-        "recall" : base_hypertuner.recall,
-        "reporttypes": base_hypertuner.reporttypes,
-    }
+   
+    def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
+        """
+        Loads the Ray Tune results from a specified directory and returns them as a DataFrame.
 
-    config = {
-          "preprocessor": BasePreprocessor,
-            "tune_dir": base_hypertuner.tune_dir,
-            "data_dir": data_dir,
-            "batch": 16,
-            "hidden": 64,
-            "dropout": 0.3,
-            "num_layers": 2,
-            "model_type": "2DTransformerResnet",  # Specify the model type
-            'num_blocks' : 1,
-            'num_classes' : 5,
-            'shape' : (16, 12),
-            "num_heads": 8,
-            "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau, # using tuner scheduler
-            "factor": 0.2,
-            "patience": 2,        
-    }
+        Args:
+            path (str): Directory path containing Ray Tune experiment logs.
 
-    hypertuner = Hypertuner(settings_hypertuner, config)
-    config["trainfile"], config["testfile"] = hypertuner.load_datafiles(data_dir)
-    evaluator = Evaluator(hypertuner)
-    evaluator.load_tunelogs_data()
+        Returns:
+            pd.DataFrame: Combined and cleaned results DataFrame.
+        """
+        tune_dir = Path(path).resolve()
+        logger.info(f"Tune directory: {tune_dir}")
+        if not tune_dir.exists():
+            logger.warning("Model data directory does not exist. Check your tune directory path.")
+            return pd.DataFrame()
+
+        # Initialize Ray
+        ray.init(ignore_reinit_error=True)
+
+        # Collect all directories within the tune_dir
+        tunelogs = sorted([d for d in tune_dir.iterdir() if d.is_dir()])
+        results = []
+
+        for logs in tunelogs:
+            try:
+                # Load experiment analysis
+                analysis = ExperimentAnalysis(logs)
+
+                # Convert results to DataFrame
+                df = analysis.dataframe()
+                df.columns = [col.lower().replace("config/", "") for col in df.columns]
+                df.sort_values("accuracy", inplace=True, ascending=False)
+
+                # Add experiment name as a column
+                df["experiment"] = logs.name.replace("train_", "")
+
+                # Optionally get best trial (for debugging/logging purposes)
+                best_trial = analysis.get_best_trial(metric="test_loss", mode="min")
+                if best_trial:
+                    logger.info(f"Best trial for {logs.name}: {best_trial}")
+
+                # Accumulate DataFrame
+                results.append(df)
+
+            except Exception as e:
+                logger.error(f"Failed to process {logs}: {e}")
+
+        # Combine all results into a single DataFrame
+        results_df = pd.concat(results, ignore_index=True)
+
+        # Get the top 10 rows based on accuracy
+        if "recallmacro" in results_df.columns:
+            top_10_df = results_df.nlargest(20, "recallmacro")
+            top_10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor"]]
+            top_10_df.reset_index(drop=True, inplace=True)
+            print(top_10_df)
+            # Save the top 10 results to a CSV file
+            top_10_df.to_csv("top10_results.csv", index=False)
+            top_10_df.reset_index(drop=True, inplace=True)
+            top_config = top_10_df.iloc[0].to_dict()
+            print(f"Top model configurations:{top_config}")
+            
+        return top_config
+
+top_config =load_tunelogs_data()
+print(top_config)

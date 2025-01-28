@@ -53,6 +53,7 @@ class ModelNames:
     Transformer2DResnet: str
     Transformer2DResnetSE: str
     Transformer2DResNetWithAttention: str
+    CNN1DResNet:str
 
 
 
@@ -68,7 +69,8 @@ modelnames = ModelNames(
     Transformer1DResnetSEwithAttention="Transformer1DResnetSEwithAttention",
     Transformer2DResnet="Transformer2DResNet",
     Transformer2DResnetSE="Transformer2DResNetSE",
-    Transformer2DResNetWithAttention="Transformer2DResNetWithAttention"
+    Transformer2DResNetWithAttention="Transformer2DResNetWithAttention",
+    CNN1DResNet = "CNN1DResNet"
 )
 
 
@@ -93,6 +95,8 @@ class ConfigParams:
     testfile: str
     earlystopping_patience: str
     optimizer: str
+    input_length:str
+    input_gru:str
 
 
 config_param = ConfigParams(
@@ -100,6 +104,7 @@ config_param = ConfigParams(
     optimizer= "optimizer",
     tune_dir="tune_dir",
     data_dir="data_dir",
+    input_gru="input",
     batch="batch",
     hidden="hidden",
     dropout="dropout",
@@ -114,5 +119,6 @@ config_param = ConfigParams(
     patience="patience",
     trainfile="trainfile",
     testfile="testfile",
-    earlystopping_patience='earlystopping_patience'
+    earlystopping_patience='earlystopping_patience',
+    input_length="input_length"
 )

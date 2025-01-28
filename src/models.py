@@ -226,6 +226,7 @@ class Transformer1DSE(nn.Module):
         
         return x
 
+
 class GRU(nn.Module):
     def __init__(
         self,
@@ -248,12 +249,14 @@ class GRU(nn.Module):
         yhat = self.linear(last_step)
         return yhat
 
+
+# attentions gru with normalization layer
+
 class AttentionGRU(nn.Module):
-    def __init__(
-        self,
-        config: Dict,
-    ) -> None:
+    def __init__(self, config: Dict) -> None:
         super().__init__()
+        
+        # GRU Layer
         self.rnn = nn.GRU(
             input_size=config["input"],
             hidden_size=config["hidden"],
@@ -261,20 +264,44 @@ class AttentionGRU(nn.Module):
             batch_first=True,
             num_layers=config["num_layers"],
         )
+        
+        # Layer Normalization after GRU
+        self.rnn_norm = nn.LayerNorm(config["hidden"])
+        
+        # Attention Layer
         self.attention = nn.MultiheadAttention(
             embed_dim=config["hidden"],
             num_heads=4,
             dropout=config["dropout"],
             batch_first=True,
         )
+        
+        # Layer Normalization after Attention
+        self.attention_norm = nn.LayerNorm(config["hidden"])
+
+        # Fully Connected Layer (Linear)
         self.linear = nn.Linear(config["hidden"], config["num_classes"])
 
     def forward(self, x: Tensor) -> Tensor:
+        # GRU output
         x, _ = self.rnn(x)
+        
+        # Apply Layer Normalization after GRU
+        x = self.rnn_norm(x)
+        
+        # Attention mechanism
         x, _ = self.attention(x.clone(), x.clone(), x)
+        
+        # Apply Layer Normalization after Attention
+        x = self.attention_norm(x)
+        
+        # Take the last step of the sequence
         last_step = x[:, -1, :]
+        
+        # Final output layer (classification)
         yhat = self.linear(last_step)
         return yhat
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout):
@@ -533,6 +560,7 @@ class Transformer1DResnetSEwithAttention(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply Conv1D to the input (shape: batch, channels, seq_len)
+        x = x.view(x.size(0), 1, 192) # reshape to batch, channels, seq_len,
         x = self.conv1d(x)  # (batch, hidden, seq_len)
         
         # Apply ResNet Block (skip connection + convolution)
@@ -564,40 +592,70 @@ class Transformer1DResnetSEwithAttention(nn.Module):
         
         return x
 
-# 2D CNN WITH RESNET BLOCKS
-class CNN2DResNet(nn.Module):
+
+class ResNetBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.relu = nn.ReLU()
+        self.batch_norm = nn.BatchNorm1d(out_channels)
+        
+        # Skip connection: ensures input and output channels match
+        self.skip_connection = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Basic ResNet Block
+        identity = self.skip_connection(x)
+        
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.batch_norm(x)
+        
+        x = self.conv2(x)
+        x = self.batch_norm(x)
+        
+        # Add skip connection (residual connection)
+        x += identity
+        x = self.relu(x)
+        
+        return x
+
+class CNN1DResNet(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
         hidden = config['hidden']
+
         
-        # Start with an initial convolutional block
+        # Start with an initial 1D convolutional block
         self.convolutions = nn.ModuleList([
-            nn.Conv2d(1, hidden, kernel_size=3, padding=1),
+            nn.Conv1d(1, hidden, kernel_size=3, padding=1),  # From Conv2d to Conv1d
             nn.ReLU(),
-            nn.BatchNorm2d(hidden)
+            nn.BatchNorm1d(hidden)  # BatchNorm1d instead of BatchNorm2d
         ])
         
-        # Adding multiple ResNet blocks
+        # Adding multiple ResNet blocks for 1D data
         for i in range(config['num_blocks']):
             self.convolutions.append(ResNetBlock(hidden, hidden))
         
         # MaxPool at the end of convolutions
-        self.convolutions.append(nn.MaxPool2d(2, 2))
+        self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of MaxPool2d
 
         # Fully connected (dense) layers
+        # Adjust the linear layer input size based on the output sequence length after convolutions and pooling
         self.dense = nn.Sequential(
             nn.Flatten(),
-            nn.Linear((8*6) * hidden, hidden),  # Adjust the size according to your image dimensions
+            nn.Linear(hidden * (config['input_length'] // 2), hidden),  # Adjust for sequence length after pooling
             nn.ReLU(),
             nn.Linear(hidden, config['num_classes']),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(0, 2, 1)
         for layer in self.convolutions:
             x = layer(x)
         x = self.dense(x)
         return x
-
 
 # 2D TRANSFORMER WITH RESNET BLOCKS
 # Define the 2D ResNet Block
@@ -628,6 +686,43 @@ class ResNetBlock2D(nn.Module):
         x = self.relu(x)
 
         return x
+
+
+# 2D CNN WITH RESNET BLOCKS
+class CNN2DResNet(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+        hidden = config['hidden']
+        
+        # Start with an initial convolutional block
+        self.convolutions = nn.ModuleList([
+            nn.Conv2d(1, hidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(hidden)
+        ])
+        
+        # Adding multiple ResNet blocks
+        for i in range(config['num_blocks']):
+            self.convolutions.append(ResNetBlock2D(hidden, hidden))
+        
+        # MaxPool at the end of convolutions
+        self.convolutions.append(nn.MaxPool2d(2, 2))
+
+        # Fully connected (dense) layers
+        self.dense = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear((8*6) * hidden, hidden),  # Adjust the size according to your image dimensions
+            nn.ReLU(),
+            nn.Linear(hidden, config['num_classes']),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.convolutions:
+            x = layer(x)
+        x = self.dense(x)
+        return x
+
+
 
 
 class Transformer2DResNet(nn.Module):
