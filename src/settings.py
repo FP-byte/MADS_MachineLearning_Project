@@ -4,6 +4,9 @@ from ray import tune
 from mltrainer import ReportTypes, metrics
 from pathlib import Path
 from metrics import Accuracy, F1Score, Precision, Recall
+import time
+import random
+import numpy as np
 
 @dataclass
 class baseHypertuner:
@@ -54,6 +57,9 @@ class ModelNames:
     Transformer2DResnetSE: str
     Transformer2DResNetWithAttention: str
     CNN1DResNet:str
+    CNN1DGRUResNet:str
+    CNN1DGRUResNetMH:str
+    CNN1DResNetWithAttention:str
 
 
 
@@ -70,7 +76,11 @@ modelnames = ModelNames(
     Transformer2DResnet="Transformer2DResNet",
     Transformer2DResnetSE="Transformer2DResNetSE",
     Transformer2DResNetWithAttention="Transformer2DResNetWithAttention",
-    CNN1DResNet = "CNN1DResNet"
+    CNN1DResNet = "CNN1DResNet",
+    CNN1DGRUResNet = "CNN1DGRUResNet",
+    CNN1DGRUResNetMH="CNN1DGRUResNetMH",
+    CNN1DResNetWithAttention= "CNN1DResNetWithAttention"
+
 )
 
 
@@ -97,6 +107,7 @@ class ConfigParams:
     optimizer: str
     input_length:str
     input_gru:str
+    seed:str
 
 
 config_param = ConfigParams(
@@ -104,6 +115,7 @@ config_param = ConfigParams(
     optimizer= "optimizer",
     tune_dir="tune_dir",
     data_dir="data_dir",
+    seed = "seed",
     input_gru="input",
     batch="batch",
     hidden="hidden",
@@ -121,4 +133,6 @@ config_param = ConfigParams(
     testfile="testfile",
     earlystopping_patience='earlystopping_patience',
     input_length="input_length"
+
 )
+

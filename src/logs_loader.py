@@ -189,8 +189,9 @@ if __name__ == "__main__":
 
         # Get the top 10 rows based on accuracy
         if "recallmacro" in results_df.columns:
-            top_10_df = results_df.nlargest(20, "recallmacro")
-            top_10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor"]]
+            print(results_df.columns)
+            top_10_df = results_df.nlargest(20, "accuracy")
+            top_10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", 'optimizer', 'num_blocks', "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor"]]
             top_10_df.reset_index(drop=True, inplace=True)
             print(top_10_df)
             # Save the top 10 results to a CSV file

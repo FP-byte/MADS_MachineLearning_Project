@@ -227,27 +227,46 @@ class Transformer1DSE(nn.Module):
         return x
 
 
+import torch
+import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
 class GRU(nn.Module):
-    def __init__(
-        self,
-        config: dict,
-    ) -> None:
+    def __init__(self, config: dict) -> None:
         super().__init__()
         print(config)
+        
+        # Initialize the GRU
         self.rnn = nn.GRU(
-            input_size=config["input"],
-            hidden_size=int(config["hidden"]),
-            dropout=config["dropout"],
-            batch_first=True,
-            num_layers=int(config["num_layers"]),
+            input_size=config["input"],  # Input feature size
+            hidden_size=int(config["hidden"]),  # Hidden state size
+            dropout=config["dropout"],  # Dropout rate
+            batch_first=True,  # Input format is (batch_size, seq_length, input_size)
+            num_layers=int(config["num_layers"]),  # Number of GRU layers
         )
+        
+        # Output layer
         self.linear = nn.Linear(int(config["hidden"]), config["num_classes"])
 
-    def forward(self, x):
-        x, _ = self.rnn(x)
-        last_step = x[:, -1, :]
+    def forward(self, x, lengths):
+        # Pack the padded sequence (requires lengths of the sequences)
+        packed_input = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
+        
+        # Pass the packed sequence through the GRU
+        packed_output, _ = self.rnn(packed_input)
+        
+        # Unpack the output (you may not need this depending on your use case)
+        output, _ = pad_packed_sequence(packed_output, batch_first=True)
+        
+        # Extract the last non-padded output for each sequence in the batch
+        # We use lengths to get the last valid output for each sequence
+        last_step = output[torch.arange(output.size(0)), lengths - 1]
+        
+        # Pass the last valid output through the linear layer for final prediction
         yhat = self.linear(last_step)
+        
         return yhat
+
 
 
 # attentions gru with normalization layer
@@ -387,32 +406,66 @@ class Transformer2D(nn.Module):
 
 
 # ResNet Block for 1D convolutions
+# class ResNetBlock1D(nn.Module):
+#     def __init__(self, in_channels, out_channels, stride=1):
+#         super(ResNetBlock1D, self).__init__()
+#         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
+#         self.bn1 = nn.BatchNorm1d(out_channels)
+#         self.relu = nn.ReLU(inplace=True)
+        
+#         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+#         self.bn2 = nn.BatchNorm1d(out_channels)
+        
+#         # Skip connection (identity map)
+#         self.shortcut = nn.Sequential()
+#         if stride != 1 or in_channels != out_channels:
+#             self.shortcut = nn.Sequential(
+#                 nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
+#                 nn.BatchNorm1d(out_channels)
+#             )
+
+#     def forward(self, x):
+#         out = self.conv1(x)
+#         out = self.bn1(out)
+#         out = self.relu(out)
+#         out = self.conv2(out)
+#         out = self.bn2(out)
+#         out += self.shortcut(x)  # Add the shortcut (skip connection)
+#         out = self.relu(out)
+#         return out
+
 class ResNetBlock1D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
-        super(ResNetBlock1D, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
         self.bn1 = nn.BatchNorm1d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        
+        self.relu = nn.ReLU()
+
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm1d(out_channels)
-        
-        # Skip connection (identity map)
-        self.shortcut = nn.Sequential()
+
+        # If input and output dimensions don't match, we need a shortcut
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
                 nn.BatchNorm1d(out_channels)
             )
+        else:
+            self.shortcut = nn.Identity()  # If they already match, no adjustment needed
 
     def forward(self, x):
+        # Main path
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
+
         out = self.conv2(out)
         out = self.bn2(out)
-        out += self.shortcut(x)  # Add the shortcut (skip connection)
+
+        # Adding the shortcut (skip connection)
+        out += self.shortcut(x)
         out = self.relu(out)
+        
         return out
 
 # Transformer 1D model with ResNet block
@@ -621,41 +674,282 @@ class ResNetBlock(nn.Module):
         
         return x
 
+
+class ConvBlock1D(nn.Module):
+    def __init__(self, in_channels, out_channels, dilation=1):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation),  # Apply dilation here
+            nn.ReLU(),
+            nn.BatchNorm1d(out_channels),  # BatchNorm1d for 1D data
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+
+
 class CNN1DResNet(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
         hidden = config['hidden']
-
+        input_length = config['input_length']
         
         # Start with an initial 1D convolutional block
         self.convolutions = nn.ModuleList([
-            nn.Conv1d(1, hidden, kernel_size=3, padding=1),  # From Conv2d to Conv1d
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden)  # BatchNorm1d instead of BatchNorm2d
+            ConvBlock1D(1, hidden),  # Start with one input channel
         ])
-        
-        # Adding multiple ResNet blocks for 1D data
+
+        # Adding multiple convolutional + residual blocks
         for i in range(config['num_blocks']):
-            self.convolutions.append(ResNetBlock(hidden, hidden))
+            if i>3:
+                # Add a convolutional block
+                self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=2))
+            else:
+                # Add a convolutional block
+                self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=i+1))
+            # Add a residual block
+            self.convolutions.append(ResNetBlock1D(hidden, hidden))
         
         # MaxPool at the end of convolutions
         self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of MaxPool2d
+        # Use Average Pooling instead of Max Pooling
+        #self.convolutions.append(nn.AvgPool1d(2, 2))  # AveragePool1d instead of MaxPool1d
 
+
+        # Calculate the output sequence length after convolutions and pooling
+        conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
+        
         # Fully connected (dense) layers
-        # Adjust the linear layer input size based on the output sequence length after convolutions and pooling
         self.dense = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(hidden * (config['input_length'] // 2), hidden),  # Adjust for sequence length after pooling
+            nn.Linear(hidden * conv_output_length, hidden),  # Adjusted input size after pooling
             nn.ReLU(),
             nn.Linear(hidden, config['num_classes']),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x should be of shape (batch_size, input_length, 1), permute to (batch_size, 1, input_length)
         x = x.permute(0, 2, 1)
+        
         for layer in self.convolutions:
             x = layer(x)
+        
         x = self.dense(x)
         return x
+
+
+class CNN1DGRUResNet(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+        hidden = config['hidden']
+        input_length = config['input_length']
+        
+        # Start with an initial 1D convolutional block
+        self.convolutions = nn.ModuleList([
+            ConvBlock1D(1, hidden),  # Start with one input channel
+        ])
+
+        # Adding multiple convolutional + residual blocks
+        for i in range(config['num_blocks']):
+            # Add a convolutional block with dilatation variation
+            self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=1+i))
+            # Add a residual block
+            self.convolutions.append(ResNetBlock1D(hidden, hidden))
+        
+        # Use Average Pooling instead of Max Pooling
+        self.convolutions.append(nn.AvgPool1d(2, 2))  # AveragePool1d instead of MaxPool1d
+
+        # Calculate the output sequence length after convolutions and pooling
+        conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
+
+        # Add a Linear layer to project the output to the correct feature size for GRU
+        self.linear_after_conv = nn.Linear(hidden * conv_output_length, hidden)  # Projection to GRU input size
+        
+        # GRU layer added after the convolutional blocks
+        self.gru = nn.GRU(
+            input_size=hidden,  # GRU input size is now the same as the output of the conv block
+            hidden_size=config['gru_hidden'],  # Hidden size of the GRU
+            num_layers=config['num_layers'],  # Number of GRU layers
+            dropout=config['dropout'],  # Dropout (if any) for the GRU
+            batch_first=True,  # GRU expects input in the form (batch_size, sequence_length, features)
+        )
+
+        # Fully connected (dense) layers
+        self.dense = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(config['gru_hidden'], hidden),  # Linear layer after GRU
+            nn.ReLU(),
+            nn.Linear(hidden, config['num_classes']),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x should be of shape (batch_size, input_length, 1), permute to (batch_size, 1, input_length)
+        x = x.permute(0, 2, 1)  # Change shape to (batch_size, sequence_length, features) for CNN
+        
+        # Apply convolutional + residual blocks
+        for layer in self.convolutions:
+            x = layer(x)
+        
+        # After convolutions, x will have shape (batch_size, sequence_length, hidden)
+        # Flatten and pass through the linear layer to project to correct feature size for GRU
+        x = self.linear_after_conv(x.view(x.size(0), -1))  # Flatten the tensor before passing to Linear layer
+        
+        # Pass the output through GRU layer
+        x, _ = self.gru(x.unsqueeze(1))  # Add sequence dimension before passing to GRU (batch_size, seq_len=1, features)
+        
+        # We can either take the last hidden state or use the whole sequence
+        last_hidden = x[:, -1, :]  # Take the last output (last timestep) from GRU
+        
+        # Apply the fully connected layers
+        x = self.dense(last_hidden)  # Feed into dense layers
+        
+        return x
+
+
+class CNN1DGRUResNetMH(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+        hidden = config['hidden']
+        input_length = config['input_length']
+        
+        # Start with an initial 1D convolutional block
+        self.convolutions = nn.ModuleList([
+            ConvBlock1D(1, hidden),  # Start with one input channel
+        ])
+
+        # Adding multiple convolutional + residual blocks
+        for i in range(config['num_blocks']):
+            # Add a convolutional block with dilatation variation
+            self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=1+i))
+            # Add a residual block
+            self.convolutions.append(ResNetBlock1D(hidden, hidden))
+        
+        # Use Average Pooling instead of Max Pooling
+        #self.convolutions.append(nn.AvgPool1d(2, 2))  # AveragePool1d instead of MaxPool1d
+        # With Max Pooling:
+        self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of AvgPool1d
+
+        # Calculate the output sequence length after convolutions and pooling
+        conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
+
+        # Add a Linear layer to project the output to the correct feature size for GRU
+        self.linear_after_conv = nn.Linear(hidden * conv_output_length, hidden)  # Projection to GRU input size
+        
+        # GRU layer added after the convolutional blocks
+        self.gru = nn.GRU(
+            input_size=hidden,  # GRU input size is now the same as the output of the conv block
+            hidden_size=config['gru_hidden'],  # Hidden size of the GRU
+            num_layers=config['num_layers'],  # Number of GRU layers
+            dropout=config['dropout'],  # Dropout (if any) for the GRU
+            batch_first=True,  # GRU expects input in the form (batch_size, sequence_length, features)
+        )
+
+        # Multihead Attention layer to attend to different time steps after GRU
+        self.attention = nn.MultiheadAttention(embed_dim=config['gru_hidden'], num_heads=config['num_heads'], dropout=config['dropout'], batch_first=True)
+        
+        # Fully connected (dense) layers
+        self.dense = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(config['gru_hidden'], hidden),  # Linear layer after GRU
+            nn.ReLU(),
+            nn.Linear(hidden, config['num_classes']),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x should be of shape (batch_size, input_length, 1), permute to (batch_size, 1, input_length)
+        x = x.permute(0, 2, 1)  # Change shape to (batch_size, sequence_length, features) for CNN
+        
+        # Apply convolutional + residual blocks
+        for layer in self.convolutions:
+            x = layer(x)
+        
+        # After convolutions, x will have shape (batch_size, sequence_length, hidden)
+        # Flatten and pass through the linear layer to project to correct feature size for GRU
+        x = self.linear_after_conv(x.view(x.size(0), -1))  # Flatten the tensor before passing to Linear layer
+        
+        # Pass the output through GRU layer
+        x, _ = self.gru(x.unsqueeze(1))  # Add sequence dimension before passing to GRU (batch_size, seq_len=1, features)
+        
+        # Apply Multihead Attention after the GRU
+        # The output of GRU has shape (batch_size, seq_len, hidden_size), so we can directly apply attention
+        attn_output, _ = self.attention(x, x, x)  # Attention output: (batch_size, seq_len, hidden)
+        
+        # You can either take the last hidden state or use the whole sequence; here we take the last timestep
+        x = attn_output[:, -1, :]  # Take the last output (last timestep) from Attention
+        
+        # Apply the fully connected layers
+        x = self.dense(x)  # Feed into dense layers
+        
+        return x
+
+
+class CNN1DResNetWithAttention(nn.Module):
+    def __init__(self, config: dict) -> None:
+        super().__init__()
+        hidden = config['hidden']
+        input_length = config['input_length']
+        
+        # Start with an initial 1D convolutional block
+        self.convolutions = nn.ModuleList([
+            ConvBlock1D(1, hidden),  # Start with one input channel
+        ])
+
+        # Adding multiple convolutional + residual blocks
+        for i in range(config['num_blocks']):
+            # Add a convolutional block with dilation variation
+            self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=1+i))
+            # Add a residual block
+            self.convolutions.append(ResNetBlock1D(hidden, hidden))
+        
+        # Use Max Pooling instead of Average Pooling
+        self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of AvgPool1d
+
+        # Multihead Attention Layer
+        self.attention = nn.MultiheadAttention(embed_dim=hidden, num_heads=config['num_heads'], dropout=config['dropout'], batch_first=True)
+
+        # Calculate the output sequence length after convolutions and pooling
+        conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
+
+        # Add a Linear layer to project the output to the correct feature size for attention
+        self.linear_after_conv = nn.Linear(hidden * conv_output_length, hidden)  # Projection to attention input size
+        
+        # Fully connected (dense) layers after attention
+        self.dense = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(hidden, hidden),  # Linear layer after attention
+            nn.ReLU(),
+            nn.Linear(hidden, config['num_classes']),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x should be of shape (batch_size, input_length, 1), permute to (batch_size, sequence_length, features)
+        x = x.permute(0, 2, 1)  # Change shape to (batch_size, sequence_length, features) for CNN
+        
+        # Apply convolutional + residual blocks
+        for layer in self.convolutions:
+            x = layer(x)
+        
+        # After convolutions, x will have shape (batch_size, sequence_length, hidden)
+        # Flatten and pass through the linear layer to project to correct feature size for attention
+        x = self.linear_after_conv(x.view(x.size(0), -1))  # Flatten the tensor before passing to Linear layer
+        
+        # Multihead Attention expects (batch_size, sequence_length, hidden), so we pass it directly
+        x = x.unsqueeze(1)  # Add sequence dimension (batch_size, seq_len=1, features) for attention
+        
+        # Apply multihead attention (q, k, v are all the same in this case)
+        attention_output, _ = self.attention(x, x, x)
+        
+        # Take the output from attention (we can take the last hidden state or the full output)
+        last_hidden = attention_output[:, -1, :]  # Taking the last timestep after attention
+        
+        # Apply the fully connected layers
+        x = self.dense(last_hidden)  # Feed into dense layers
+        
+        return x
+
+
 
 # 2D TRANSFORMER WITH RESNET BLOCKS
 # Define the 2D ResNet Block

@@ -2,6 +2,9 @@ from pathlib import Path
 from typing import Dict
 import tomllib
 import os
+import time
+import random
+import numpy as np
 from datetime import datetime
 import ray
 import torch
@@ -21,6 +24,8 @@ from settings import base_hypertuner, modelnames, config_param
 from loguru import logger
 import logging
 import tempfile
+
+
 
 
 class Hypertuner:
@@ -51,6 +56,16 @@ class Hypertuner:
         )
         self.reporter = CLIReporter()
         self.reporter.add_metric_column("Accuracy")
+
+        # Function to set the random seed for reproducibility
+    def set_seed(self, seed: int):
+        random.seed(seed)  # Python's random seed
+        np.random.seed(seed)  # Numpy random seed
+        torch.manual_seed(seed)  # PyTorch seed
+        torch.cuda.manual_seed_all(seed)  # CUDA seed (for multi-GPU setups)
+        torch.backends.cudnn.deterministic = True  # Ensure deterministic algorithms
+        torch.backends.cudnn.benchmark = False  # Disable non-deterministic algorithms  
+
 
     def shorten_trial_dirname(self, trial):
         """Shorten the trial directory name to avoid path length issues."""
@@ -93,12 +108,12 @@ class Hypertuner:
         total = 0
         with torch.no_grad():
             for data in testloader:
-                images, labels = data
-                images, labels = images.to(device), labels.to(device)
-                outputs = best_trained_model(images)
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                
+                # to do
+                # _, predicted = torch.max(outputs.data, 1)
+                # total += labels.size(0)
+                # correct += (predicted == labels).sum().item()
+                pass
 
 
         print("Best trial test set accuracy: {}".format(correct / total))
@@ -113,6 +128,7 @@ class Hypertuner:
         """               
                 
         data_dir = config["data_dir"]
+        #self.set_seed(config["seed"])
         
         trainfile = Path(config["trainfile"])
         testfile = Path(config["testfile"]) 
@@ -161,7 +177,7 @@ class Hypertuner:
             reporttypes=self.reporttypes,
             scheduler_kwargs={"factor": config[config_param.factor], "patience": config[config_param.patience]},
             #scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
-            earlystop_kwargs={"patience": config[config_param.earlystopping_patience]},
+            earlystop_kwargs={"patience": config[config_param.earlystopping_patience], "save": True},
         )
         if config.get(config_param.scheduler) == torch.optim.lr_scheduler.ExponentialLR:
             print("Using OneCycleLR")
@@ -247,7 +263,7 @@ class Hypertuner:
         Raises:
             ValueError: If the specified model type is not supported.
         """
-        model_type = config.get("model_type", "2DCNN")
+        model_type = config.get("model_type", "CNN1DResnet")
         model_classes = modelnames.__dict__
         if model_type not in model_classes:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -265,34 +281,44 @@ class Hypertuner:
 if __name__ == "__main__":
     #test with 2DCNN
     #ray.init()
-    ray.init(logging_level=logging.WARNING)
-    
+    ray.init()
 
+
+
+
+    data_dir = base_hypertuner.data_dir
+    seed = random.randint(0, 2**32 - 1)
+    
     config = {
         config_param.preprocessor: BasePreprocessor,
-        config_param.optimizer: torch.optim.Adam,
+        config_param.optimizer: tune.choice([torch.optim.Adam, torch.optim.AdamW]),
         config_param.tune_dir: base_hypertuner.tune_dir,
         config_param.data_dir: base_hypertuner.data_dir,
-        config_param.input_gru: 1,
-        config_param.batch: tune.choice([16, 32, 48, 60]),  # Batch size specific to the dataset
-        config_param.hidden: tune.choice([64, 128, 256]),
-        config_param.dropout: tune.uniform(0.1, 0.5),
-        config_param.num_layers: tune.randint(2, 5),
-        config_param.model_type: modelnames.GRU,  # Specify the model type
-        config_param.num_blocks: tune.randint(1, 5),
+        config_param.seed: seed,
+        #"gru_hidden": tune.choice([32, 64, 128, 256]), # hidden units for gru
+        #config_param.input_gru: 1,
+        config_param.batch: tune.choice([16, 32]),  # Batch size specific to the dataset
+        config_param.hidden: tune.choice([128, 256]), # hidden units for cnn and dense layer
+        config_param.dropout: tune.choice([0.2, 0.3]),
+        config_param.num_layers: tune.randint(2, 5), #num layers RNN
+        config_param.model_type: modelnames.Transformer1DResnet,  # Specify the model type
+        config_param.num_blocks: tune.randint(1, 8), # num conv / resnet blocks
         config_param.num_classes: 5,
-        config_param.shape: (16, 12),
-        config_param.num_heads: tune.choice([1, 2, 4, 8]),
+        #config_param.shape: (16, 12), # shape for 2D models
+        config_param.num_heads: tune.choice([2, 8]), # heads for attention
         config_param.scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
-        config_param.factor: 0.4,
-        config_param.patience: 2,
-        config_param.earlystopping_patience:8,
+        config_param.factor: 0.2,
+        config_param.patience: 2, # wait time before reducing lr with factor
+        config_param.earlystopping_patience: 15, # wait time if netwerk is not learning before stopping
         
     }
+            
+
 
     hypertuner = Hypertuner(config)
     #test setting
-    hypertuner.MAX_EPOCHS=20
+    
+    hypertuner.MAX_EPOCHS=30
     hypertuner.NUM_SAMPLES=15
     config[config_param.trainfile], config[config_param.testfile] = hypertuner.load_datafiles()
 
@@ -312,17 +338,15 @@ if __name__ == "__main__":
     )
 
 
-    # Print the best result
-    # print("Best accuracy: ", analysis.get_best_config(metric="accuracy", mode="max"))
-    # print("Best recall: ", analysis.get_best_config(metric="recall", mode="max"))
-    # print("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
+    #Print the best result
+    
 
+    best_result_acc = analysis.get_best_trial("accuracy", "max")
+    best_result_rec = analysis.get_best_trial("recall", "max")
+    print("Best accuracy: ", best_result_acc)
+    print("Best model config: ", analysis.get_best_result(metric="accuracy", mode="max").config)
+    print("Best recall: ", best_result_rec)
+    print("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
 
-    best_result = analysis.get_best_trial("accuracy", "max")
-    best_result = analysis.get_best_trial("recall", "max")
-    print(best_result)
-
-
-    #hypertuner.test_best_model(best_result, smoke_test=False)
 
     ray.shutdown()
