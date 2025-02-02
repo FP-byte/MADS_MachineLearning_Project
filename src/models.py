@@ -4,7 +4,7 @@ import torch
 from loguru import logger
 from torch import Tensor, nn
 import torch.nn.functional as F
-
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -227,10 +227,6 @@ class Transformer1DSE(nn.Module):
         return x
 
 
-import torch
-import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
 class GRU(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -266,7 +262,6 @@ class GRU(nn.Module):
         yhat = self.linear(last_step)
         
         return yhat
-
 
 
 # attentions gru with normalization layer
@@ -688,8 +683,6 @@ class ConvBlock1D(nn.Module):
         return self.conv(x)
 
 
-
-
 class CNN1DResNet(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -807,7 +800,7 @@ class CNN1DGRUResNet(nn.Module):
         
         return x
 
-
+# CNN 1D with ResNet and Multihead Attention (with GRU)
 class CNN1DGRUResNetMH(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -884,7 +877,7 @@ class CNN1DGRUResNetMH(nn.Module):
         
         return x
 
-
+# CNN 1D with ResNet and Multihead Attention (without GRU)
 class CNN1DResNetWithAttention(nn.Module):
     def __init__(self, config: dict) -> None:
         super().__init__()
@@ -949,8 +942,6 @@ class CNN1DResNetWithAttention(nn.Module):
         
         return x
 
-
-
 # 2D TRANSFORMER WITH RESNET BLOCKS
 # Define the 2D ResNet Block
 class ResNetBlock2D(nn.Module):
@@ -980,7 +971,6 @@ class ResNetBlock2D(nn.Module):
         x = self.relu(x)
 
         return x
-
 
 # 2D CNN WITH RESNET BLOCKS
 class CNN2DResNet(nn.Module):
@@ -1015,8 +1005,6 @@ class CNN2DResNet(nn.Module):
             x = layer(x)
         x = self.dense(x)
         return x
-
-
 
 
 class Transformer2DResNet(nn.Module):
@@ -1218,12 +1206,12 @@ class Transformer2DResNetWithAttention(nn.Module):
         # Add the SE block after the ResNet Block
         self.se_block = SEBlock(config["hidden"])
 
-        # Transformer-related components
-        self.pos_encoder = PositionalEncoding(config["hidden"], config["dropout"])
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(config["hidden"], config["num_heads"], config["dropout"])
-            for _ in range(config["num_blocks"])
-        ])
+        # Multi-Head Attention with Squeeze and Excitation
+        self.attention_block = MultiHeadAttentionWithSE(
+            hidden_dim=config["hidden"],
+            num_heads=config["num_heads"],
+            dropout=config["dropout"]
+        )
 
         # Final output layers
         self.out = nn.Sequential(
@@ -1245,12 +1233,13 @@ class Transformer2DResNetWithAttention(nn.Module):
         # Apply Squeeze-and-Excite Block
         x = self.se_block(x)
 
-        # Apply positional encoding and flatten the input for transformer
-        x = self.pos_encoder(x.flatten(2).transpose(1, 2))
+        # Flatten to fit attention input format (batch_size, seq_len, hidden_dim)
+        # Assuming the input has a shape of (batch_size, hidden, height, width)
+        batch_size, hidden_dim, height, width = x.size()
+        x = x.flatten(2).transpose(1, 2)  # Shape: (batch_size, seq_len, hidden_dim)
 
-        # Pass through transformer blocks
-        for transformer_block in self.transformer_blocks:
-            x = transformer_block(x)
+        # Pass through the Multi-Head Attention block
+        x = self.attention_block(x)
 
         # Global average pooling
         x = x.mean(dim=1)

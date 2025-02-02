@@ -45,7 +45,7 @@ base_hypertuner = baseHypertuner(
 @dataclass
 class ModelNames:
     CNN2D: str
-    CNN2DResnet: str
+    CNN2DResNet: str
     Transformer2D: str
     Transformer1D: str
     GRU: str
@@ -65,7 +65,7 @@ class ModelNames:
 
 modelnames = ModelNames(
     CNN2D="CNN",
-    CNN2DResnet="CNN2DResNet",
+    CNN2DResNet="CNN2DResNet",
     Transformer2D="Transformer2D",
     Transformer1D="Transformer",
     GRU="GRU",
@@ -90,6 +90,7 @@ class ConfigParams:
     tune_dir: str
     data_dir: str
     batch: str
+    gru_hidden: str
     hidden: str
     dropout: str
     num_layers: str
@@ -108,6 +109,7 @@ class ConfigParams:
     input_length:str
     input_gru:str
     seed:str
+    traindataset:str
 
 
 config_param = ConfigParams(
@@ -119,6 +121,7 @@ config_param = ConfigParams(
     input_gru="input",
     batch="batch",
     hidden="hidden",
+    gru_hidden="gru_hidden",
     dropout="dropout",
     num_layers="num_layers",
     model_type="model_type",
@@ -132,7 +135,8 @@ config_param = ConfigParams(
     trainfile="trainfile",
     testfile="testfile",
     earlystopping_patience='earlystopping_patience',
-    input_length="input_length"
+    input_length="input_length",
+    traindataset="traindataset"
 
 )
 

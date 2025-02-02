@@ -9,7 +9,6 @@ from datetime import datetime
 import ray
 import torch
 from filelock import FileLock
-from loguru import logger
 from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
 from mltrainer.preprocessors import BasePreprocessor
 from mads_datasets.base import BaseDatastreamer
@@ -37,8 +36,8 @@ class Hypertuner:
             settings_hypertuner (Dict): General settings for the hypertuner.
             config (Dict): Hyperparameter configuration to tune.
         """
-        print("hypertuner started")
-
+        logger.info("hypertuner started")
+        logger.info("hypertuner started")
         self.NUM_SAMPLES = base_hypertuner.NUM_SAMPLES
         self.MAX_EPOCHS = base_hypertuner.MAX_EPOCHS      
         self.accuracy = base_hypertuner.accuracy
@@ -68,7 +67,7 @@ class Hypertuner:
 
 
     def shorten_trial_dirname(self, trial):
-        """Shorten the trial directory name to avoid path length issues."""
+        """Shorten the trial directory name to avoid path length issues on Windows."""
         return f"trial_{trial.trial_id}"
 
     
@@ -76,12 +75,11 @@ class Hypertuner:
             valid_combinations = []
             heads = int(heads)  # Convert heads to int
             for h in range(hidden[0], hidden[1], 20):  # range of hidden units
-                print(type(h))
-                heads = int(heads)
+                logger.debug(f"Type of h: {type(h)}")
                 if h % heads == 0:
-                    print(type(heads))
+                    logger.debug(f"Type of heads: {type(heads)}")
                     valid_combinations.append(hidden)
-            print(f"Valid combinations: {valid_combinations}")
+            logger.info(f"Valid combinations: {valid_combinations}")
             return random.choice(valid_combinations)
 
     def test_best_model(self, best_result, smoke_test=False):
@@ -116,10 +114,10 @@ class Hypertuner:
                 pass
 
 
-        print("Best trial test set accuracy: {}".format(correct / total))
+        logger.info("Best trial test set accuracy: {}".format(correct / total))
 
 
-    def train(self, config):
+    def train(self, config: Dict):
         """
         Train function to be passed to Ray Tune. Dynamically handles datasets and models.
 
@@ -128,32 +126,32 @@ class Hypertuner:
         """               
                 
         data_dir = config["data_dir"]
-        #self.set_seed(config["seed"])
+        self.set_seed(config["seed"])
         
         trainfile = Path(config["trainfile"])
         testfile = Path(config["testfile"]) 
 
         if torch.backends.mps.is_available():
             self.device = torch.device('mps')
-            print('MPS is available')
+            logger.info('MPS is available')
         else:
             self.device = torch.device('cpu')
+            logger.info('MPS is not available, using CPU')
     
 
-        print(f"Training with model: {config['model_type']}")
-        # load the data based on the configuration
-       # if config["model_type"] in ["1DTransformer", "1DTransformerResnet", "GRU", "AttentionGRU", "1DTransformerResnetSE", "1DTransformerResnetSEwithAttention"]:
+        logger.info(f"Training with model: {config['model_type']}")
+        
         traindataset = datasets.HeartDataset1D(trainfile, target="target")
         testdataset = datasets.HeartDataset1D(testfile, target="target")
+        msg = "Loading 1D data"
 
-
-        if config["model_type"] in ["2DTransformer", "2DTransformerResnet", "2DCNNResnet", "2DTransformerResnetSE", "2DTransformerResnetWithAttention", "2DCNN"]:
-
-            print("Loading 2D data")            
+        if "2D" in config["model_type"]: 
+            msg = "Loading 2D data"     
             traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config["shape"])
             testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config["shape"])
+            
+        logger.info(msg)
    
-
         #Load the datastreamers
         preprocessor_class = config.get(config_param.preprocessor, BasePreprocessor)
         preprocessor = preprocessor_class()
@@ -179,10 +177,14 @@ class Hypertuner:
             #scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
             earlystop_kwargs={"patience": config[config_param.earlystopping_patience], "save": True},
         )
+        # Custom learning rate scheduler ExponentialLR
         if config.get(config_param.scheduler) == torch.optim.lr_scheduler.ExponentialLR:
-            print("Using OneCycleLR")
-            trainersettings.scheduler_kwargs = {"gamma": config[config_param.factor]}
+                    logger.info("Using ExponentialLR")
+                    trainersettings.scheduler_kwargs = {"gamma": config[config_param.factor]}
+        
+        # Custom learning rate scheduler LambdaLR
         if config.get(config_param.scheduler) == torch.optim.lr_scheduler.LambdaLR:
+            logger.info("Using LambdaLR")
             # Parameters
             num_warmup_steps = 1000
             num_training_steps = 10000
@@ -199,7 +201,9 @@ class Hypertuner:
 
             # Learning rate scheduler
             trainersettings.scheduler_kwargs = {"lr_lambda": lr_lambda}
+        # Custom learning rate scheduler CosineAnnealingLR    
         if config.get("scheduler") == torch.optim.lr_scheduler.CosineAnnealingLR:
+            logger.info("Using OneCycleLR")
             trainersettings.scheduler_kwargs = {"T_max": trainersettings.train_steps}
 
 
@@ -221,7 +225,6 @@ class Hypertuner:
             trainer.loop()
         except Exception as e:
             logger.exception(f"An error occurred during training: {e}")
-            logger.warning("Training failed, error: {e}")
             raise
   
     def load_datafiles(self):
@@ -238,15 +241,19 @@ class Hypertuner:
             logger.info(f"Created {tune_dir}")
 
         #load train and test files
-        trainfile = data_dir / (paths['arrhythmia_smote'] + '_train.parq')
-       # trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+        if self.config[config_param.traindataset] == 'smote':
+            trainfile = data_dir / (paths['arrhythmia_smote'] + '_train.parq')
+            logger.info(f"Training with SMOTE dataset")
+        else:
+            trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
+            logger.info(f"Training with oversampled dataset")
        # trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
 
         return trainfile, testfile
 
 
-    def _initialize_model(self, config):
+    def _initialize_model(self, config: Dict):
         """
         Initialize and return the model based on the configuration.
 
@@ -313,12 +320,10 @@ if __name__ == "__main__":
         
     }
             
-
-
     hypertuner = Hypertuner(config)
     #test setting
     
-    hypertuner.MAX_EPOCHS=30
+    hypertuner.MAX_EPOCHS=40
     hypertuner.NUM_SAMPLES=15
     config[config_param.trainfile], config[config_param.testfile] = hypertuner.load_datafiles()
 
@@ -338,15 +343,15 @@ if __name__ == "__main__":
     )
 
 
-    #Print the best result
-    
-
+    #Print the best results  
+    # best result accuracy 
     best_result_acc = analysis.get_best_trial("accuracy", "max")
+    # best result recall
     best_result_rec = analysis.get_best_trial("recall", "max")
-    print("Best accuracy: ", best_result_acc)
-    print("Best model config: ", analysis.get_best_result(metric="accuracy", mode="max").config)
-    print("Best recall: ", best_result_rec)
-    print("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
+    logger.info("Best accuracy: ", best_result_acc)
+    logger.info("Best model config: ", analysis.get_best_result(metric="accuracy", mode="max").config)
+    logger.info("Best recall: ", best_result_rec)
+    logger.info("Best model config: ", analysis.get_best_result(metric="recall", mode="max").config)
 
 
     ray.shutdown()
