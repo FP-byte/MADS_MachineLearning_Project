@@ -752,7 +752,8 @@ class CNN1DGRUResNet(nn.Module):
             self.convolutions.append(ResNetBlock1D(hidden, hidden))
         
         # Use Average Pooling instead of Max Pooling
-        self.convolutions.append(nn.AvgPool1d(2, 2))  # AveragePool1d instead of MaxPool1d
+        #self.convolutions.append(nn.AvgPool1d(2, 2))  # AveragePool1d instead of MaxPool1d
+        self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of AvgPool1d
 
         # Calculate the output sequence length after convolutions and pooling
         conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
@@ -874,71 +875,6 @@ class CNN1DGRUResNetMH(nn.Module):
         
         # Apply the fully connected layers
         x = self.dense(x)  # Feed into dense layers
-        
-        return x
-
-# CNN 1D with ResNet and Multihead Attention (without GRU)
-class CNN1DResNetWithAttention(nn.Module):
-    def __init__(self, config: dict) -> None:
-        super().__init__()
-        hidden = config['hidden']
-        input_length = config['input_length']
-        
-        # Start with an initial 1D convolutional block
-        self.convolutions = nn.ModuleList([
-            ConvBlock1D(1, hidden),  # Start with one input channel
-        ])
-
-        # Adding multiple convolutional + residual blocks
-        for i in range(config['num_blocks']):
-            # Add a convolutional block with dilation variation
-            self.convolutions.append(ConvBlock1D(hidden, hidden, dilation=1+i))
-            # Add a residual block
-            self.convolutions.append(ResNetBlock1D(hidden, hidden))
-        
-        # Use Max Pooling instead of Average Pooling
-        self.convolutions.append(nn.MaxPool1d(2, 2))  # MaxPool1d instead of AvgPool1d
-
-        # Multihead Attention Layer
-        self.attention = nn.MultiheadAttention(embed_dim=hidden, num_heads=config['num_heads'], dropout=config['dropout'], batch_first=True)
-
-        # Calculate the output sequence length after convolutions and pooling
-        conv_output_length = input_length // 2  # Pooling with stride=2 halves the sequence length
-
-        # Add a Linear layer to project the output to the correct feature size for attention
-        self.linear_after_conv = nn.Linear(hidden * conv_output_length, hidden)  # Projection to attention input size
-        
-        # Fully connected (dense) layers after attention
-        self.dense = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(hidden, hidden),  # Linear layer after attention
-            nn.ReLU(),
-            nn.Linear(hidden, config['num_classes']),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x should be of shape (batch_size, input_length, 1), permute to (batch_size, sequence_length, features)
-        x = x.permute(0, 2, 1)  # Change shape to (batch_size, sequence_length, features) for CNN
-        
-        # Apply convolutional + residual blocks
-        for layer in self.convolutions:
-            x = layer(x)
-        
-        # After convolutions, x will have shape (batch_size, sequence_length, hidden)
-        # Flatten and pass through the linear layer to project to correct feature size for attention
-        x = self.linear_after_conv(x.view(x.size(0), -1))  # Flatten the tensor before passing to Linear layer
-        
-        # Multihead Attention expects (batch_size, sequence_length, hidden), so we pass it directly
-        x = x.unsqueeze(1)  # Add sequence dimension (batch_size, seq_len=1, features) for attention
-        
-        # Apply multihead attention (q, k, v are all the same in this case)
-        attention_output, _ = self.attention(x, x, x)
-        
-        # Take the output from attention (we can take the last hidden state or the full output)
-        last_hidden = attention_output[:, -1, :]  # Taking the last timestep after attention
-        
-        # Apply the fully connected layers
-        x = self.dense(last_hidden)  # Feed into dense layers
         
         return x
 

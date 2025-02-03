@@ -175,7 +175,7 @@ class Hypertuner:
             reporttypes=self.reporttypes,
             scheduler_kwargs={"factor": config[config_param.factor], "patience": config[config_param.patience]},
             #scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
-            earlystop_kwargs={"patience": config[config_param.earlystopping_patience], "save": True},
+            #earlystop_kwargs={"patience": config[config_param.earlystopping_patience], "save": True},
         )
         # Custom learning rate scheduler ExponentialLR
         if config.get(config_param.scheduler) == torch.optim.lr_scheduler.ExponentialLR:
@@ -216,7 +216,6 @@ class Hypertuner:
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
             scheduler=config.get("scheduler"),
-            #scheduler=hypertuner.scheduler,
             device=self.device,
         )
 

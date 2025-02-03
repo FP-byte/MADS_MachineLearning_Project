@@ -24,13 +24,13 @@ def hypertune_2DCNN():
         config_param.tune_dir: base_hypertuner.tune_dir,
         config_param.data_dir: base_hypertuner.data_dir,
         config_param.seed: random.randint(0, 2**32 - 1),
-        "gru_hidden": tune.choice([32, 64, 128, 256]), # hidden units for gru
-        config_param.input_gru: 1,
+        #"gru_hidden": tune.choice([32, 64, 128, 256]), # hidden units for gru
+        #config_param.input_gru: 1,
         config_param.batch: tune.choice([16, 32]),  # Batch size specific to the dataset
         config_param.hidden: tune.choice([32, 64, 128, 256]), # hidden units for cnn and dense layer
         config_param.dropout: tune.choice([0.2, 0.3, 0.4]),
         config_param.num_layers: tune.randint(2, 5), #num layers RNN
-        config_param.model_type: modelnames.CNN2DResNet,  # Specify the model type
+        config_param.model_type: modelnames.Transformer2DResNet,  # Specify the model type
         config_param.num_blocks: tune.randint(1, 8), # num conv / resnet blocks
         config_param.num_classes: 5,
         config_param.shape: (16, 12), # shape for 2D models

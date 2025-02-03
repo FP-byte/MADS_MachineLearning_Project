@@ -53,13 +53,12 @@ class ModelNames:
     Transformer1DResnet: str
     Transformer1DResnetSE: str
     Transformer1DResnetSEwithAttention: str
-    Transformer2DResnet: str
+    Transformer2DResNet: str
     Transformer2DResnetSE: str
     Transformer2DResNetWithAttention: str
     CNN1DResNet:str
     CNN1DGRUResNet:str
     CNN1DGRUResNetMH:str
-    CNN1DResNetWithAttention:str
 
 
 
@@ -73,13 +72,12 @@ modelnames = ModelNames(
     Transformer1DResnet="Transformer1DResnet",
     Transformer1DResnetSE="Transformer1DResnetSE",
     Transformer1DResnetSEwithAttention="Transformer1DResnetSEwithAttention",
-    Transformer2DResnet="Transformer2DResNet",
+    Transformer2DResNet="Transformer2DResNet",
     Transformer2DResnetSE="Transformer2DResNetSE",
     Transformer2DResNetWithAttention="Transformer2DResNetWithAttention",
     CNN1DResNet = "CNN1DResNet",
     CNN1DGRUResNet = "CNN1DGRUResNet",
     CNN1DGRUResNetMH="CNN1DGRUResNetMH",
-    CNN1DResNetWithAttention= "CNN1DResNetWithAttention"
 
 )
 
