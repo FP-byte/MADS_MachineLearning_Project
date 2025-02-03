@@ -11,7 +11,11 @@ from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
 from mltrainer.preprocessors import BasePreprocessor
 
 def hypertune_2DCNN():
-    #test with 2DCNN
+    """
+    Hypertuning function to set parameters for 2D CNN model
+    and start hypertuning with ray
+    
+    """    
     ray.init()
     
     data_dir = base_hypertuner.data_dir

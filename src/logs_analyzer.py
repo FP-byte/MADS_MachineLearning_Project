@@ -11,95 +11,11 @@ import plotly.graph_objects as go
 from sklearn.metrics import confusion_matrix
 from typing import Dict
 from hypertuner import Hypertuner
+from tabulate import tabulate
 
 
 class Dashboard():
-    def __init__(self):
-
-        self.top_config = None
-        self.model = None
-        self.teststreamer = None
-        self.y_pred = []
-        self.y_true = []
-        self.config = None
-       
-
-    def evaluate_model(self):
-        testdata = self.teststreamer.stream()
-        for _ in range(len(self.teststreamer)):
-            X, y = next(testdata)
-            
-            yhat = self.model(X)
-            yhat = yhat.argmax(dim=1) # we get the one with the highest probability
-            y_pred.append(yhat.cpu().tolist())
-            y_true.append(y.cpu().tolist())
-
-        yhat = [x for y in y_pred for x in y]
-        y = [x for y in y_true for x in y]
-
-        cfm = confusion_matrix(y, yhat)
-        cfm = cfm / np.sum(cfm, axis=1, keepdims=True)
-        print(config)
-        print(f'test_results={np.round(cfm[cfm > 0.3], 3)}')
-        plot = sns.heatmap(cfm, annot=cfm, fmt=".3f")
-        plot.set(xlabel="Predicted", ylabel="Target")
-        plt.show()
-        plt.savefig(f"confusion_matrix_{config['model_type']}.png")
-
-    def plot_contour(df, x, y, z, start=0.90, end=1.0, size=0.01):
-        fig = go.Figure()
-
-        fig.add_trace(
-            go.Contour(
-                z=df[z],
-                x=df[x],
-                y=df[y],
-                contours=dict(
-                    coloring='heatmap',
-                    showlabels=True,  # show labels on contours
-                    start=start,       # start of the contour range
-                    end=end,          # end of the contour range
-                    size=size,
-                ),
-                colorscale="plasma",
-                colorbar=dict(
-                    title='Accuracy'
-                )
-            )
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=df[x],
-                y=df[y],
-                mode='markers',
-                marker=dict(
-                    color='black',
-                    size=8,
-                    symbol='circle'
-                ),
-                customdata=df['accuracy'],  # Pass accuracy values for hover text
-                hovertemplate=(
-                    'Hidden Size: %{x}<br>'
-                    'Number of Layers: %{y}<br>'
-                    'Accuracy: %{customdata:.4f}<extra></extra>'
-                ),
-                name='Data Points'
-            )
-        )
-
-        fig.update_layout(
-            title="Contour Plot",
-            xaxis_title="Hidden Size",
-            yaxis_title="Number of Layers",
-            xaxis=dict(showgrid=False),  # Remove x-axis grid lines
-            yaxis=dict(showgrid=False),
-            plot_bgcolor='white',        # Set background color to white
-            paper_bgcolor='white'
-        )
-
-        fig.show()
-
+         
 
     def load_tunelogs_data(path="models/ray") -> pd.DataFrame:
         """
@@ -150,43 +66,67 @@ class Dashboard():
 
         # Combine all results into a single DataFrame
         results_df = pd.concat(results, ignore_index=True)
+           
+        return results_df
 
-        # Get the top 10 rows based on accuracy
-        if "recallmacro" in results_df.columns:
-            top_10_df = results_df.nlargest(10, "recallmacro")
-            top_10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor"]]
-            top_10_df.reset_index(drop=True, inplace=True)
-            print(top_10_df)
-            # Save the top 10 results to a CSV file
-            top_10_df.to_csv("top10_results.csv", index=False)
-            top10_df.reset_index(drop=True, inplace=True)
-            top_config = top10_df.iloc[0].to_dict()
-            print(f"Top model configurations:{top_config}")
-            
-        return top_config
+    def report_results(self, results_df, model):
+        """
+        Generates a report of the top results from the given DataFrame and model.
 
-    def evaluate_model(config, model, teststreamer):
+        Args:
+            results_df (pd.DataFrame): DataFrame containing the results to be reported.
+            model (str): The model name for which the report is to be generated.
 
-        testdata = teststreamer.stream()
-        for _ in range(len(teststreamer)):
-            X, y = next(testdata)
-            
-            yhat = model(X)
-            yhat = yhat.argmax(dim=1) # we get the one with the highest probability
-            y_pred.append(yhat.cpu().tolist())
-            y_true.append(y.cpu().tolist())
+        Returns:
+            pd.DataFrame: A cleaned and sorted DataFrame containing the top results.
 
-        yhat = [x for y in y_pred for x in y]
-        y = [x for y in y_true for x in y]
+        The function performs the following steps:
+        1. Calls `self.report_top_results` to get the top results.
+        2. Extracts the top results for the specified model.
+        3. Cleans the DataFrame by selecting only the relevant columns.
+        4. Calls `self.report_top_results_md` to generate a markdown report of the top results.
+        """
+        report = self.report_top_results(results_df)
+        df = pd.DataFrame(report[model])
+        df_clean = df[['iterations', 'accuracy', 'recallmacro', 'experiment',
+                'batch', 'hidden', 'dropout', 'num_layers', 'num_blocks',  'factor', 'optimizer',
+            'gru_hidden', 'trainfile']]
+        df_clean['trainfile'] =df_clean['trainfile'].apply(lambda x: x.name.split("_")[2]) 
+        df_clean.sort_values(by = ['accuracy','recallmacro', 'iterations'], inplace=True, ascending=False)
+        for col in df_clean.columns:
+            if col not in ['trainfile', 'experiment', 'accuracy', 'recallmacro', 'iterations']:
+                val = sorted(df_clean[col].unique().tolist())
+                print(f'{col} {val}')
+        self.report_top_results_md(df_clean, 2)
+        return df_clean
 
-        cfm = confusion_matrix(y, yhat)
-        cfm = cfm / np.sum(cfm, axis=1, keepdims=True)
-        print(config)
-        print(f'test_results={np.round(cfm[cfm > 0.3], 3)}')
-        plot = sns.heatmap(cfm, annot=cfm, fmt=".3f")
-        plot.set(xlabel="Predicted", ylabel="Target")
-        plt.show()
-        plt.savefig(f"confusion_matrix_{config['model_type']}.png")
+    def report_top_results(self, results_df, top=30):
+        report={}
+        for model in results_df.model_type.unique():
+            top10_results = results_df[results_df.model_type==model].nlargest(top, "accuracy")
+            report[model] = top10_results.to_dict(orient='records')
+        return report
+
+    def create_report_md(self, report_df):
+        # Convert to Markdown table
+        markdown_table = tabulate(report_df, headers="keys", tablefmt="pipe")
+        
+        # Print or save the Markdown table
+        print(markdown_table)
+        return markdown_table
+
+    def report_top_results_md(self, results_df, top=5):
+        report={}
+        top_5 = results_df[:top]
+        for col in top_5.columns:
+            report[col] = "<br>".join(map(lambda x: f"{x:.4f}" if isinstance(x, float) else str(x), top_5[col]))
+        # Convert report into a DataFrame if needed
+        report_df = pd.DataFrame([report])
+       
+        markdown_table = self.create_report_md(report_df)
+        return report_df
+
+
 
     def load_tunelogs_data(self, path="models/ray") -> pd.DataFrame:
         """
@@ -242,11 +182,11 @@ class Dashboard():
             
         return results_df
 
-    def get_top_config(self, results_df: pd.DataFrame) -> Dict:
+    def get_top_config(self, results_df: pd.DataFrame, top=20) -> Dict:
         # Get the top 10 rows based on recall
         if "recallmacro" in results_df.columns:
             print(results_df.columns)
-            top_10_df = results_df.nlargest(20, "recallmacro")
+            top_10_df = results_df.nlargest(top, "recallmacro")
             top_10_df['trainfile'] = top_10_df['trainfile'].apply(lambda x: x.name)
             top_10_df = top_10_df[["experiment", "trial_id", "accuracy", "model_type", "test_loss", "batch", 'optimizer', 'num_blocks', "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor", "trainfile"]]
             top_10_df.reset_index(drop=True, inplace=True)
@@ -262,4 +202,6 @@ if __name__ == "__main__":
    dashboard = Dashboard()
    results_df = dashboard.load_tunelogs_data()
    top_config = dashboard.get_top_config(results_df)
+   model = '2DCNNResnet'
+   model_report = dashboard.report_results(results_df, model)
    print(top_config)

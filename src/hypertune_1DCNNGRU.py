@@ -11,6 +11,10 @@ from settings import base_hypertuner, modelnames, config_param
 from mltrainer.preprocessors import BasePreprocessor
 
 def hypertune_1DCNNGRU():
+    """
+    Hypertuning function to set parameters for 1D CNN GRU model
+    and start hypertuning with ray
+    """
 
     ray.init()
 
@@ -29,7 +33,6 @@ def hypertune_1DCNNGRU():
         config_param.dropout: tune.choice([0.2, 0.4]),
         config_param.num_layers: 4, #num layers RNN
         config_param.model_type: modelnames.CNN1DGRUResNet,  # Specify the model type
-        #config_param.num_heads: tune.choice([2, 4, 8]), # heads for attention
         config_param.num_blocks: tune.choice([4,5]), # num conv / resnet blocks
         config_param.num_classes: 5,
         config_param.scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
@@ -44,7 +47,7 @@ def hypertune_1DCNNGRU():
     
     hypertuner = Hypertuner(config)
     hypertuner.NUM_SAMPLES=15
-    hypertuner.MAX_EPOCHS=27
+    hypertuner.MAX_EPOCHS=30
     
     config[config_param.trainfile], config[config_param.testfile] = hypertuner.load_datafiles()
     

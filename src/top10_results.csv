@@ -15,7 +15,7 @@ experiment,trial_id,accuracy,model_type,test_loss,batch,optimizer,num_blocks,dro
 2025-02-01_20-03-18,70048d50,0.9806985294117647,CNN1DGRUResNet,0.10788146406412125,32,<class 'torch.optim.adam.Adam'>,2,0.2,64,2,,0.9602674546825085,39,0.4,heart_big_oversampled_full_train.parq
 2025-02-01_10-21-43,fc263c4d,0.9857536764705882,CNN1DGRUResNet,0.09187367558479309,32,<class 'torch.optim.adam.Adam'>,5,0.4,64,2,2.0,0.9593400018766419,27,0.2,heart_big_oversampled_full_train.parq
 2025-01-31_20-21-17,36f7e684,0.9866727941176471,CNN1DResNetWithAttention,0.08999384939670563,32,<class 'torch.optim.adam.Adam'>,3,0.3,64,3,2.0,0.9593003030621263,24,0.2,heart_big_oversampled_full_train.parq
+2025-02-03_13-55-29,14e48e14,0.9741300366300366,CNN1DGRUResNet,0.1438627541065216,16,<class 'torch.optim.adamw.AdamW'>,5,0.2,64,4,,0.9587648005230425,39,0.3,heart_big_oversampled_full_train.parq
 2025-01-22_18-54-05,936788a9,0.9772518382352942,2DCNNResnet,0.09977437555789948,32,,3,0.3247027901091531,139,2,,0.9586437806557851,8,,heart_big_oversampled_full_train.parq
 2025-02-01_09-02-42,de5d3743,0.9821428571428571,CNN1DResNet,0.09617328643798828,16,<class 'torch.optim.adam.Adam'>,5,0.2,16,3,2.0,0.9584006449391067,29,0.2,heart_big_oversampled_full_train.parq
 2025-02-02_11-35-13,681ae735,0.9721966911764706,CNN1DGRUResNetMH,0.09615187346935272,32,<class 'torch.optim.adamw.AdamW'>,2,0.4,64,3,4.0,0.9583872118295272,29,0.3,heart_big_oversampled_full_train.parq
-2025-01-31_20-21-17,7eeba1af,0.9741300366300366,CNN1DResNetWithAttention,0.13214589655399323,16,<class 'torch.optim.adam.Adam'>,3,0.4,128,3,8.0,0.9581359320370314,8,0.2,heart_big_oversampled_full_train.parq

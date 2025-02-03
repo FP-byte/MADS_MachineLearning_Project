@@ -125,11 +125,11 @@ class Hypertuner:
             config (Dict): Hyperparameter configuration provided by Ray Tune.
         """               
                 
-        data_dir = config["data_dir"]
-        self.set_seed(config["seed"])
+        data_dir = config[config_param.data_dir]
+        self.set_seed(config[config_param.seed])
         
-        trainfile = Path(config["trainfile"])
-        testfile = Path(config["testfile"]) 
+        trainfile = Path(config[config_param.trainfile])
+        testfile = Path(config[config_param.testfile]) 
 
         if torch.backends.mps.is_available():
             self.device = torch.device('mps')
@@ -139,16 +139,16 @@ class Hypertuner:
             logger.info('MPS is not available, using CPU')
     
 
-        logger.info(f"Training with model: {config['model_type']}")
+        logger.info(f"Training with model: {config[config_param.model_type]}")
         
         traindataset = datasets.HeartDataset1D(trainfile, target="target")
         testdataset = datasets.HeartDataset1D(testfile, target="target")
         msg = "Loading 1D data"
 
-        if "2D" in config["model_type"]: 
+        if "2D" in config[config_param.model_type]: 
             msg = "Loading 2D data"     
-            traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config["shape"])
-            testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config["shape"])
+            traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config[config_param.shape])
+            testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config[config_param.shape])
             
         logger.info(msg)
    
@@ -212,7 +212,7 @@ class Hypertuner:
             model=model,
             settings=trainersettings,
             loss_fn=torch.nn.CrossEntropyLoss(),
-            optimizer=config['optimizer'],
+            optimizer=config[config_param.optimizer],
             traindataloader=trainstreamer.stream(),
             validdataloader=teststreamer.stream(),
             scheduler=config.get("scheduler"),
@@ -227,7 +227,7 @@ class Hypertuner:
             raise
   
     def load_datafiles(self):
-        data_dir = self.config["data_dir"]
+        data_dir = self.config[config_param.data_dir]
         configfile = Path("config.toml")
 
         with configfile.open('rb') as f:
@@ -269,7 +269,7 @@ class Hypertuner:
         Raises:
             ValueError: If the specified model type is not supported.
         """
-        model_type = config.get("model_type", "CNN1DResnet")
+        model_type = config.get(config_param.model_type, "CNN1DResnet")
         model_classes = modelnames.__dict__
         if model_type not in model_classes:
             raise ValueError(f"Unsupported model type: {model_type}")
@@ -301,8 +301,6 @@ if __name__ == "__main__":
         config_param.tune_dir: base_hypertuner.tune_dir,
         config_param.data_dir: base_hypertuner.data_dir,
         config_param.seed: seed,
-        #"gru_hidden": tune.choice([32, 64, 128, 256]), # hidden units for gru
-        #config_param.input_gru: 1,
         config_param.batch: tune.choice([16, 32]),  # Batch size specific to the dataset
         config_param.hidden: tune.choice([128, 256]), # hidden units for cnn and dense layer
         config_param.dropout: tune.choice([0.2, 0.3]),

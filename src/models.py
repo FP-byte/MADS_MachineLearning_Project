@@ -5,6 +5,9 @@ from loguru import logger
 from torch import Tensor, nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from settings import config_param
+
+################### BLOCKS FOR MODELS ###################
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -18,6 +21,41 @@ class ConvBlock(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class ResNetBlock1D(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.relu = nn.ReLU()
+
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+
+        # If input and output dimensions don't match, we need a shortcut
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
+                nn.BatchNorm1d(out_channels)
+            )
+        else:
+            self.shortcut = nn.Identity()  # If they already match, no adjustment needed
+
+    def forward(self, x):
+        # Main path
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        # Adding the shortcut (skip connection)
+        out += self.shortcut(x)
+        out = self.relu(out)
+        
+        return out
 
 
 class CNN(nn.Module):
@@ -103,7 +141,58 @@ class TransformerBlock(nn.Module):
         x = self.layer_norm2(x + identity)  # Add & Norm skip
         return x
 
-# transformer 1D
+
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(SEBlock, self).__init__()
+        self.fc1 = nn.Linear(channel, channel // reduction)
+        self.fc2 = nn.Linear(channel // reduction, channel)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # Squeeze: Global Average Pooling
+        b, c, _, _ = x.size()  # batch_size, channels, height, width
+        squeeze = F.adaptive_avg_pool2d(x, (1, 1))  # (b, c, 1, 1)
+        squeeze = squeeze.view(b, c)  # Flatten to (b, c)
+
+        # Excitation: Fully connected layers + sigmoid activation
+        excitation = F.relu(self.fc1(squeeze))
+        excitation = self.sigmoid(self.fc2(excitation)).view(b, c, 1, 1)  # (b, c, 1, 1)
+
+        # Recalibration: Re-weight the original feature maps
+        return x * excitation.expand_as(x)
+
+class SqueezeExcite1D(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(SqueezeExcite1D, self).__init__()
+        # Squeeze: Global Average Pooling
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        
+        # Excite: Two fully connected layers (bottleneck architecture)
+        self.fc1 = nn.Linear(in_channels, in_channels // reduction)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(in_channels // reduction, in_channels)
+        
+        # Sigmoid activation to get attention weights
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # Squeeze
+        x_se = self.global_avg_pool(x)  # (batch, channels, 1)
+        x_se = x_se.view(x_se.size(0), -1)  # Flatten to (batch, channels)
+        
+        # Excite
+        x_se = self.fc1(x_se)  # (batch, channels // reduction)
+        x_se = self.relu(x_se)
+        x_se = self.fc2(x_se)  # (batch, channels)
+        
+        # Scale input feature map with the learned attention weights
+        x_se = self.sigmoid(x_se).unsqueeze(-1)  # (batch, channels, 1)
+        
+        return x * x_se  # Apply attention (channel recalibration)
+
+
+################### 1D MODELS ###################
 class Transformer(nn.Module):
     def __init__(
         self,
@@ -147,34 +236,7 @@ class Transformer(nn.Module):
         x = self.out(x)
         return x
 
-class SqueezeExcite1D(nn.Module):
-    def __init__(self, in_channels, reduction=16):
-        super(SqueezeExcite1D, self).__init__()
-        # Squeeze: Global Average Pooling
-        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
-        
-        # Excite: Two fully connected layers (bottleneck architecture)
-        self.fc1 = nn.Linear(in_channels, in_channels // reduction)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(in_channels // reduction, in_channels)
-        
-        # Sigmoid activation to get attention weights
-        self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
-        # Squeeze
-        x_se = self.global_avg_pool(x)  # (batch, channels, 1)
-        x_se = x_se.view(x_se.size(0), -1)  # Flatten to (batch, channels)
-        
-        # Excite
-        x_se = self.fc1(x_se)  # (batch, channels // reduction)
-        x_se = self.relu(x_se)
-        x_se = self.fc2(x_se)  # (batch, channels)
-        
-        # Scale input feature map with the learned attention weights
-        x_se = self.sigmoid(x_se).unsqueeze(-1)  # (batch, channels, 1)
-        
-        return x * x_se  # Apply attention (channel recalibration)
 
 class Transformer1DSE(nn.Module):
     def __init__(self, config: dict) -> None:
@@ -263,7 +325,6 @@ class GRU(nn.Module):
         
         return yhat
 
-
 # attentions gru with normalization layer
 
 class AttentionGRU(nn.Module):
@@ -316,152 +377,6 @@ class AttentionGRU(nn.Module):
         yhat = self.linear(last_step)
         return yhat
 
-
-class TransformerBlock(nn.Module):
-    def __init__(self, hidden_size, num_heads, dropout):
-        # feel free to change the input parameters of the constructor
-        super(TransformerBlock, self).__init__()
-        self.attention = nn.MultiheadAttention(
-            embed_dim=hidden_size,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.ff = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-        )
-        self.layer_norm1 = nn.LayerNorm(hidden_size)
-        self.layer_norm2 = nn.LayerNorm(hidden_size)
-
-    def forward(self, x):
-        identity = x.clone() # skip connection
-        x, _ = self.attention(x, x, x)
-        x = self.layer_norm1(x + identity) # Add & Norm skip
-        identity = x.clone() # second skip connection
-        x = self.ff(x)
-        x = self.layer_norm2(x + identity) # Add & Norm skip
-        return x
-
-#werkend
-class Transformer2D(nn.Module):
-    def __init__(
-        self,
-        config: dict,
-    ) -> None:
-        super().__init__()
-        self.config = config
-        self.hidden = self.config["hidden"]
-        self.convolutions = nn.ModuleList([
-            ConvBlock(1, self.hidden),
-        ])
-
-        for i in range(config['num_blocks']):
-            self.convolutions.extend([ConvBlock(self.hidden, self.hidden), nn.ReLU()])
-        self.convolutions.append(nn.MaxPool2d(2, 2))
-
-        self.pos_encoder = PositionalEncoding(self.hidden, self.config["dropout"])
-
-        # Create multiple transformer blocks
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(self.config["hidden"], self.config["num_heads"], self.config["dropout"])
-            for _ in range(self.config["num_blocks"])
-        ])
-
-        #self.out = nn.Linear(config["hidden"], config["num_classes"])
-        self.out = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(self.config["hidden"], self.config["hidden"]//2),
-            nn.ReLU(),
-            nn.Dropout(self.config["dropout"]),
-            nn.Linear(self.config["hidden"]//2, self.config['num_classes']),
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        # streamer:         (batch, seq_len, channels)
-        # conv2d            (batch, channels, seq_len) [32, 1, 16, 12]
-        # conv1d:           (batch, channels, seq_len) [32, 1, 192]
-        # pos_encoding:     (batch, seq_len, channels)
-        # attention:        (batch, seq_len, channels)
-        #x = self.conv1d(x.transpose(1, 2)) # flip channels and seq_len for conv1d
-        x = x.view(x.size(0), 1, 16, 12) # reshape to 2D
-        for conv in self.convolutions:
-            x = conv(x)
-        x = x.view(x.size(0), self.config["hidden"], (6*8))
-        x = self.pos_encoder(x.transpose(1, 2)) # flip back to seq_len and channels
-
-        # Apply multiple transformer blocks
-        for transformer_block in self.transformer_blocks:
-            x = transformer_block(x)
-
-        x = x.mean(dim=1) # Global Average Pooling
-        x = self.out(x)
-        return x
-
-
-# ResNet Block for 1D convolutions
-# class ResNetBlock1D(nn.Module):
-#     def __init__(self, in_channels, out_channels, stride=1):
-#         super(ResNetBlock1D, self).__init__()
-#         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
-#         self.bn1 = nn.BatchNorm1d(out_channels)
-#         self.relu = nn.ReLU(inplace=True)
-        
-#         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-#         self.bn2 = nn.BatchNorm1d(out_channels)
-        
-#         # Skip connection (identity map)
-#         self.shortcut = nn.Sequential()
-#         if stride != 1 or in_channels != out_channels:
-#             self.shortcut = nn.Sequential(
-#                 nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
-#                 nn.BatchNorm1d(out_channels)
-#             )
-
-#     def forward(self, x):
-#         out = self.conv1(x)
-#         out = self.bn1(out)
-#         out = self.relu(out)
-#         out = self.conv2(out)
-#         out = self.bn2(out)
-#         out += self.shortcut(x)  # Add the shortcut (skip connection)
-#         out = self.relu(out)
-#         return out
-
-class ResNetBlock1D(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
-        super().__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.relu = nn.ReLU()
-
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm1d(out_channels)
-
-        # If input and output dimensions don't match, we need a shortcut
-        if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0),
-                nn.BatchNorm1d(out_channels)
-            )
-        else:
-            self.shortcut = nn.Identity()  # If they already match, no adjustment needed
-
-    def forward(self, x):
-        # Main path
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        # Adding the shortcut (skip connection)
-        out += self.shortcut(x)
-        out = self.relu(out)
-        
-        return out
 
 # Transformer 1D model with ResNet block
 # Transformer model with ResNet block
@@ -764,7 +679,7 @@ class CNN1DGRUResNet(nn.Module):
         # GRU layer added after the convolutional blocks
         self.gru = nn.GRU(
             input_size=hidden,  # GRU input size is now the same as the output of the conv block
-            hidden_size=config['gru_hidden'],  # Hidden size of the GRU
+            hidden_size=config[config_param.gru_hidden],  # Hidden size of the GRU
             num_layers=config['num_layers'],  # Number of GRU layers
             dropout=config['dropout'],  # Dropout (if any) for the GRU
             batch_first=True,  # GRU expects input in the form (batch_size, sequence_length, features)
@@ -773,7 +688,7 @@ class CNN1DGRUResNet(nn.Module):
         # Fully connected (dense) layers
         self.dense = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(config['gru_hidden'], hidden),  # Linear layer after GRU
+            nn.Linear(config[config_param.gru_hidden], hidden),  # Linear layer after GRU
             nn.ReLU(),
             nn.Linear(hidden, config['num_classes']),
         )
@@ -876,6 +791,62 @@ class CNN1DGRUResNetMH(nn.Module):
         # Apply the fully connected layers
         x = self.dense(x)  # Feed into dense layers
         
+        return x
+
+
+################### 2D MODELS ###################
+class Transformer2D(nn.Module):
+    def __init__(
+        self,
+        config: dict,
+    ) -> None:
+        super().__init__()
+        self.config = config
+        self.hidden = self.config["hidden"]
+        self.convolutions = nn.ModuleList([
+            ConvBlock(1, self.hidden),
+        ])
+
+        for i in range(config['num_blocks']):
+            self.convolutions.extend([ConvBlock(self.hidden, self.hidden), nn.ReLU()])
+        self.convolutions.append(nn.MaxPool2d(2, 2))
+
+        self.pos_encoder = PositionalEncoding(self.hidden, self.config["dropout"])
+
+        # Create multiple transformer blocks
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(self.config["hidden"], self.config["num_heads"], self.config["dropout"])
+            for _ in range(self.config["num_blocks"])
+        ])
+
+        #self.out = nn.Linear(config["hidden"], config["num_classes"])
+        self.out = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.config["hidden"], self.config["hidden"]//2),
+            nn.ReLU(),
+            nn.Dropout(self.config["dropout"]),
+            nn.Linear(self.config["hidden"]//2, self.config['num_classes']),
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        # streamer:         (batch, seq_len, channels)
+        # conv2d            (batch, channels, seq_len) [32, 1, 16, 12]
+        # conv1d:           (batch, channels, seq_len) [32, 1, 192]
+        # pos_encoding:     (batch, seq_len, channels)
+        # attention:        (batch, seq_len, channels)
+        #x = self.conv1d(x.transpose(1, 2)) # flip channels and seq_len for conv1d
+        x = x.view(x.size(0), 1, 16, 12) # reshape to 2D
+        for conv in self.convolutions:
+            x = conv(x)
+        x = x.view(x.size(0), self.config["hidden"], (6*8))
+        x = self.pos_encoder(x.transpose(1, 2)) # flip back to seq_len and channels
+
+        # Apply multiple transformer blocks
+        for transformer_block in self.transformer_blocks:
+            x = transformer_block(x)
+
+        x = x.mean(dim=1) # Global Average Pooling
+        x = self.out(x)
         return x
 
 # 2D TRANSFORMER WITH RESNET BLOCKS
@@ -1008,26 +979,6 @@ class Transformer2DResNet(nn.Module):
         # Final classification layers
         x = self.out(x)  # (batch, num_classes)
         return x
-
-class SEBlock(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super(SEBlock, self).__init__()
-        self.fc1 = nn.Linear(channel, channel // reduction)
-        self.fc2 = nn.Linear(channel // reduction, channel)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # Squeeze: Global Average Pooling
-        b, c, _, _ = x.size()  # batch_size, channels, height, width
-        squeeze = F.adaptive_avg_pool2d(x, (1, 1))  # (b, c, 1, 1)
-        squeeze = squeeze.view(b, c)  # Flatten to (b, c)
-
-        # Excitation: Fully connected layers + sigmoid activation
-        excitation = F.relu(self.fc1(squeeze))
-        excitation = self.sigmoid(self.fc2(excitation)).view(b, c, 1, 1)  # (b, c, 1, 1)
-
-        # Recalibration: Re-weight the original feature maps
-        return x * excitation.expand_as(x)
 
 
 class Transformer2DResNetSE(nn.Module):
