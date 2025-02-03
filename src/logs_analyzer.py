@@ -86,25 +86,41 @@ class Dashboard():
         3. Cleans the DataFrame by selecting only the relevant columns.
         4. Calls `self.report_top_results_md` to generate a markdown report of the top results.
         """
-        report = self.report_top_results(results_df)
+        report = self.report_top_results(results_df, top=10)
         df = pd.DataFrame(report[model])
-        df_clean = df[['iterations', 'accuracy', 'recallmacro', 'experiment',
-                'batch', 'hidden', 'dropout', 'num_layers', 'num_blocks',  'factor', 'optimizer',
+        # select the columns to be displayed in the report
+        df_clean = df[['iterations', 'accuracy', 'recallmacro', 'batch', 'hidden', 'dropout', 'num_layers', 'num_blocks',  'factor', 'optimizer',
             'gru_hidden', 'trainfile']]
+        # extract the trainfile name
         df_clean['trainfile'] =df_clean['trainfile'].apply(lambda x: x.name.split("_")[2]) 
         df_clean.sort_values(by = ['accuracy','recallmacro', 'iterations'], inplace=True, ascending=False)
+        # create a dictionary to store the configurations results
+        report_res ={}
+        report_res['model'] = model
         for col in df_clean.columns:
-            if col not in ['trainfile', 'experiment', 'accuracy', 'recallmacro', 'iterations']:
+
+            if col not in ['trainfile', 'experiment', 'accuracy', 'recallmacro', 'iterations', 'optimizer']:
                 val = sorted(df_clean[col].unique().tolist())
-                print(f'{col} {val}')
-        self.report_top_results_md(df_clean, 2)
+                if len(val) == 1:
+                    report_res[col] = val
+                else:
+                    
+                    report_res[col] = [round(v, 1) if isinstance(v, float) else v for v in val]
+    
+        #print the configurations table   
+        #self.create_report_md(report_res)
+        df_report_configurations= pd.DataFrame([report_res])
+        # report hyperparameters configurations for model
+        self.report_top_results_md(df_report_configurations)
+        # report top 2 results for model
+        self.report_top_results_md(df_clean[:2])
         return df_clean
 
     def report_top_results(self, results_df, top=30):
         report={}
         for model in results_df.model_type.unique():
-            top10_results = results_df[results_df.model_type==model].nlargest(top, "accuracy")
-            report[model] = top10_results.to_dict(orient='records')
+            top_results = results_df[results_df.model_type==model].nlargest(top, "accuracy")
+            report[model] = top_results.to_dict(orient='records')
         return report
 
     def create_report_md(self, report_df):
@@ -115,15 +131,15 @@ class Dashboard():
         print(markdown_table)
         return markdown_table
 
-    def report_top_results_md(self, results_df, top=5):
+    def report_top_results_md(self, df):
         report={}
-        top_5 = results_df[:top]
-        for col in top_5.columns:
-            report[col] = "<br>".join(map(lambda x: f"{x:.4f}" if isinstance(x, float) else str(x), top_5[col]))
+        for col in df.columns:
+            report[col] = "<br>".join(map(lambda x: f"{x:.4f}" if isinstance(x, float) else str(x), df[col]))
         # Convert report into a DataFrame if needed
         report_df = pd.DataFrame([report])
        
         markdown_table = self.create_report_md(report_df)
+        print(markdown_table)
         return report_df
 
 
@@ -202,6 +218,10 @@ if __name__ == "__main__":
    dashboard = Dashboard()
    results_df = dashboard.load_tunelogs_data()
    top_config = dashboard.get_top_config(results_df)
+   print(top_config)
    model = '2DCNNResnet'
    model_report = dashboard.report_results(results_df, model)
-   print(top_config)
+  
+   model2 = 'CNN1DGRUResNet'
+   model_report = dashboard.report_results(results_df, model2)
+
