@@ -1,13 +1,9 @@
-from pathlib import Path
-from typing import Dict
 import random
 import ray
 import torch
-from loguru import logger
 from ray import tune
 from hypertuner import Hypertuner
 from settings import base_hypertuner, modelnames, config_param
-from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
 from mltrainer.preprocessors import BasePreprocessor
 
 def hypertune_2DCNN():
@@ -17,9 +13,6 @@ def hypertune_2DCNN():
     
     """    
     ray.init()
-    
-    data_dir = base_hypertuner.data_dir
- 
 
     config = {
         config_param.preprocessor: BasePreprocessor,
@@ -50,23 +43,7 @@ def hypertune_2DCNN():
     hypertuner.NUM_SAMPLES=15
     hypertuner.MAX_EPOCHS=30
     
-    config["trainfile"], config["testfile"] = hypertuner.load_datafiles()
-    
-
-    analysis = tune.run(
-        hypertuner.train,
-        config=config,
-        metric="Accuracy",
-        mode="max",
-        progress_reporter=hypertuner.reporter,
-        storage_path=str(config["tune_dir"]),
-        num_samples=hypertuner.NUM_SAMPLES,
-        search_alg=hypertuner.search,
-        scheduler=hypertuner.scheduler,
-        verbose=1,
-        trial_dirname_creator=hypertuner.shorten_trial_dirname,
-    )
-    
+    config["trainfile"], config["testfile"] = hypertuner.load_datafiles()    
 
     ray.shutdown()
 

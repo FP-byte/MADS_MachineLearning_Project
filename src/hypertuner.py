@@ -1,28 +1,21 @@
 from pathlib import Path
 from typing import Dict
 import tomllib
-import os
-import time
 import random
 import numpy as np
-from datetime import datetime
 import ray
 import torch
 from filelock import FileLock
-from mltrainer import ReportTypes, Trainer, TrainerSettings, metrics
+from mltrainer import Trainer, TrainerSettings
 from mltrainer.preprocessors import BasePreprocessor
 from mads_datasets.base import BaseDatastreamer
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.schedulers import AsyncHyperBandScheduler
-from mads_datasets import DatasetFactoryProvider, DatasetType
-from metrics import Accuracy, F1Score, Precision, Recall
 import datasets
 from settings import base_hypertuner, modelnames, config_param
 from loguru import logger
-import logging
-import tempfile
 
 
 
@@ -125,8 +118,8 @@ class Hypertuner:
         logger.info(msg)
 
         # Load the data streamers for training and testing datasets
-        preprocessor_class = config.get(config_param.preprocessor, BasePreprocessor)
-        preprocessor = preprocessor_class()
+        #preprocessor_class = config.get(config_param.preprocessor, BasePreprocessor)
+        #preprocessor = preprocessor_class()
 
         # Ensure the data directory is locked during data loading
         with FileLock(data_dir / ".lock"):
@@ -180,7 +173,7 @@ class Hypertuner:
             raise
 
   
-    def load_datafiles(self):
+    def load_datafiles(self) -> tuple[Path, Path]:
         """
         Loads the training and test datasets based on the configuration settings.
         
@@ -210,10 +203,10 @@ class Hypertuner:
         # Load the train and test files based on the selected dataset type
         if self.config[config_param.traindataset] == 'smote':
             trainfile = data_dir / (paths['arrhythmia_smote'] + '_train.parq')
-            logger.info(f"Training with SMOTE dataset")
+            logger.info("Training with SMOTE dataset")
         else:
             trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
-            logger.info(f"Training with oversampled dataset")
+            logger.info("Training with oversampled dataset")
         
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
 
@@ -221,7 +214,7 @@ class Hypertuner:
 
 
 
-    def _initialize_model(self, config: Dict):
+    def _initialize_model(self, config: Dict) -> object:
         """
         Initialize and return the model based on the configuration.
 

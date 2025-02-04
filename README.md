@@ -80,7 +80,7 @@ The semi-sampled has been used for few training rounds and then replaced by the 
 Smote dataset consist of syntetic data obtained by creating new instances that are interpolated between existing instances of the minority class. It uses a k-nearest neighbors (k-NN) approach to find similar points and generates synthetic examples that are between those points.
 Dataset contains 72.471 samples for each class.
 
-## Weight rebalancing
+### Weights rebalancing
 I also tried reweighting for 2D CNN and Transformer models using sklearn class weight function.
 class_weight ('balanced'): 'balanced': Automatically adjusts the weights inversely proportional to the class frequencies. This is useful when you have a highly imbalanced dataset. A dictionary where keys are the class labels and values are the corresponding weight values. If provided, it overrides the class_weight parameter.
 The reweighting did not work well for all models, thus I did not test it further.
@@ -110,11 +110,14 @@ My explorations (see src/models.py) incuded:
 - CNN1D GRU + ResNet
 - CNN1D + GRU+ ResNet + Multihead Attention
 
-Additions tested:
+Additions and enhancements tested:
 - Dilated Convolutions: Increased receptive field by spacing out the kernel, capturing long-range dependencies.
 - MaxPooling vs. GAP: MaxPooling captured peaks in time-series, while GAP aggregated features—each useful depending on the task.
 - Packed Sequences: Improved efficiency by converting padded sequences into packed format, enabling RNNs to ignore padding.
 - Seed:setting a random seed is crucial for reproducibility.
+- Squeeze-and-Excitation (SE) Block: Enhanced Transformers by focusing on important features, but provided little benefit to CNNs, which already capture local patterns.
+- Resnet Blocks to CNN and Trasformers
+- Multi Head attention to CNN + GRU
 
 ## 2 Manual and Ray hypertuning
 

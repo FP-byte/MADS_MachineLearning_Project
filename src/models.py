@@ -4,7 +4,7 @@ import torch
 from loguru import logger
 from torch import Tensor, nn
 import torch.nn.functional as F
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
 
 
 ################### BLOCKS FOR MODELS ###################
@@ -1028,7 +1028,7 @@ class MultiHeadAttentionWithSE(nn.Module):
         self.attn = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout)
         
         # Squeeze-and-Excitation block
-        self.se_block = SqueezeExcitation(hidden_dim, reduction)
+        self.se_block = SEBlock(hidden_dim, reduction)
 
         # Feed-forward network
         self.ffn = nn.Sequential(
