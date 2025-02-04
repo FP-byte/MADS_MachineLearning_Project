@@ -1,5 +1,5 @@
 
-# Project Report - Master Informatics
+# Machine learning Project Report - Master Informatics
 
 
 
@@ -64,7 +64,7 @@ Best configurations for the two model (30 epochs) with a balanced oversampled tr
 |  2DCNN    |           30 |     0.9888 |        0.9744 |      16 |      128 |       0.3 |            3 |            1 |      0.2 |        --    | 
 |  1DCNNGRU |           28 |     0.9858 |        0.9593 |      32 |       64 |       0.4 |            2 |            5 |      0.2 |        256   |
 
-Hyperparameter tuning started with manual exploration of parameters like the number of blocks and layers, followed by hypertuning using Ray Tune’s HypeOptSearch. This method probabilistically searches the space, using previous trial performance to predict optimal hyperparameters. During hypertunring additional factors like batch size, optimizer, scheduler and dataset were tested. These parameters not reported on the table for lack of space. Models were trained for 30 to 40 epochs with early stopping, as longer training did not improve accuracy on either the SMOTE or oversampled datasets.
+Hyperparameter tuning started with manual exploration of parameters like the number of blocks and layers, followed by hypertuning using Ray Tune’s HypeOptSearch. This method probabilistically searches the space, using previous trial performance to predict optimal hyperparameters. During hypertunring additional factors like batch size, optimizer, scheduler and dataset were tested. Not all parameters are reported on the table above for semplicity. Models were trained for 30 to 40 epochs with early stopping, as longer training did not improve accuracy on either the SMOTE or oversampled datasets.
 
 ## RESULTS, REFLECTIONS AND KEY LEARNINGS
 
@@ -74,16 +74,15 @@ The **initial hypothesis** was that 1D models, specifically GRU and 1D CNN, woul
 
 **Dataset Imbalance**: From the start, the 1D models’ performance was hindered by the dataset's imbalance. Despite efforts to address this issue through architectural changes, the almost all the 1D models overfit to the majority class and underperformed. This led to further exploration of Transformers and 2D CNN models, which seemed to handle the imbalanced dataset a little better. This led to exploring more models and solutions than initially planned, which was useful for deeper insights. Balancing the dataset should have been the first step in the exploration before exploring alternatieves!
 
-GRU Model:GRU Model: While GRUs are well-suited for sequential data, they can be slow and computationally expensive to train due to their recurrent nature. Their ability to capture long-term dependencies can be a double-edged sword: the update and reset gates may favor the dominant class, causing the model to "memorize" patterns of the majority class and potentially ignore the minority class as noise. Although GRUs initially struggled with imbalanced datasets, they performed well with upsampled and synthetically modified datasets, but the training time was a significant challenge. However, this issue can be mitigated through hybrid architectures, where CNN layers are used to efficiently extract features and GRU layers capture temporal dependencies within those features. These hybrid models reduce overfitting, train faster using parallel processing, and are less resource-intensive due to the convolutional layers simplifying the model's complexity scale.
-Also, other models suffered from overfitting to the majority class, but the GRU was particularly extreme in this regard. To illustrate the difference, here is a confusion matrix comparing the GRU's performance with an imbalanced dataset versus a SMOTE-modified dataset, as well as a CNN-GRU hybrid model (trained for 5 epochs):
+**GRU Model**: While GRUs are well-suited for sequential data, they can be slow and computationally expensive to train due to their recurrent nature. Their ability to capture long-term dependencies can be a double-edged sword: the update and reset gates may favor the dominant class, causing the model to "memorize" patterns of the majority class and potentially ignore the minority class as noise. Although GRUs initially struggled with imbalanced datasets, they performed well with upsampled and synthetically modified datasets, but the training time was a significant challenge. However, this issue can be mitigated through hybrid architectures, where CNN layers are used to efficiently extract features and GRU layers capture temporal dependencies within those features. These hybrid models reduce overfitting, train faster using parallel processing, and are less resource-intensive due to the convolutional layers simplifying the model's complexity scale.
+Also, other models suffered from overfitting to the majority class, but the GRU was particularly extreme in this regard. To illustrate the difference, her is a confusion matrix comparing the GRU's performance with an imbalanced dataset versus a SMOTE-modified dataset, as well as a CNN-GRU hybrid model (all trained for 5 epochs):
 | **GRU with imbalanced dataset** | **GRU with balanced smote dataset** | **Hybrid CNN+GRU with smote dataset** |
 |:-------------------------------:|:-----------------------------------:|:-------------------------------------:|
 | ![GRU with imbalanced dataset](img/GRU_2L_256HU_output.png) | ![GRU with smote dataset](img/GRU_256H_2L_smote_output.png) | ![Hybrid CNN+GRU with smote dataset](img/CNN1DGRUResNet_confusion_matrix_smote.png) |
 
-**2D CNN**: The 2D CNN architecture performed exceptionally well on this dataset, especially with synthetic or oversampled data. It handled also semi-imbalanced data effectively and was fast to train. Despite being a more complex model, the 2D CNN worked well due to its ability to capture spatial features. The addition of **residual blocks** helped retain more information and avoid overfitting, making this model quicker to train and delivering top results. Adding shortcut connections in CNNs and also Transformers allowed for deeper models and better training.
-
-Here is the performance of the Hybrid GRU model vs the 2D CNN trained for 30 epochs with the best configuration:
-| **Hybrid 1D CNN with GRU** | **2D CNN with Resnet** | 
+**2D CNN**: The 2D CNN architecture performed exceptionally well on this dataset, especially with synthetic or oversampled data and was fast to train. Despite being a more complex model, the 2D CNN worked well due to its ability to capture spatial features. The addition of **residual blocks** helped retain more information and avoid overfitting, making this model stable and delivering the best results. 
+Here is the performance of the Hybrid GRU model vs the 2D CNN trained for 30 epochs with the best configuration from the hypertuning:
+| **Hybrid 1D CNN with GRU and Resnet** | **2D CNN with Resnet** | 
 |:-------------------------------:|:-----------------------------------:|
 | <img src="img/1DCNNGRU_Bestconfig_output.png" width="300"/> | <img src="img/CNN2D_bestconfig_oversampled_output.png" width="300"/> | 
 
