@@ -5,7 +5,7 @@ import seaborn as sns
 import streamlit as st
 from ray.tune import ExperimentAnalysis
 import ray
-from logs_loader import Dashboard
+from logs_analyzer import Dashboard
 import plotly.express as px
 
 
@@ -55,16 +55,17 @@ def main() -> None:
             model = st.selectbox("Select the model", st.session_state.tunelogs["model_type"].unique(), key="model_select")
             model_metrics = st.session_state.tunelogs[st.session_state.tunelogs["model_type"] == model]
 
-            # Filter top 10 models based on a metric (e.g., accuracy)
+            # Filter top models based on a metric (e.g., accuracy)
             metric = st.selectbox("Select the metric to rank models", model_metrics.columns, key="metric_select")
-            top_10_models = model_metrics.nlargest(10, metric)
+            num_records = st.number_input("Select number of records to show", min_value=1, max_value=model_metrics.shape[0], value=10, step=1, key="num_records")
+            top_models = model_metrics.nlargest(num_records, metric)
 
-            # Plot top 10 models
-            st.write(f"Top 10 {model} models based on {metric}")
+            # Plot top models
+            st.write(f"Top {num_records} {model} models based on {metric}")
             model_cols = ["accuracy", "test_loss", "batch", "optimizer", "num_blocks", "dropout", "hidden", "num_layers", "num_heads", "recallmacro", "iterations", "factor", "trainfile"]
 
             select = st.multiselect("Select the columns to plot", model_cols, key="select_columns")
-            p = top_10_models[select].reset_index().dropna()
+            p = top_models[select].reset_index().dropna()
             p.drop(columns=["index"], inplace=True)
             color = st.selectbox("Select the color (categorical preferred)", select, key="color_scatter")
 

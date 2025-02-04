@@ -56,116 +56,87 @@ class Hypertuner:
         self.reporter = CLIReporter()
         self.reporter.add_metric_column("Accuracy")
 
-        # Function to set the random seed for reproducibility
+    # Function to set the random seed for reproducibility
     def set_seed(self, seed: int):
+        """
+        Sets the random seed for various libraries to ensure reproducibility of results.
+        
+        This function sets the seed for Python's built-in random module, NumPy, 
+        PyTorch, and CUDA (if available) to ensure that the results of random operations 
+        are consistent across different runs. It also configures PyTorch's settings to 
+        use deterministic algorithms and disables non-deterministic algorithms for reproducibility.
+
+        Args:
+            seed (int): The seed value to set for random number generation across all libraries.
+
+        """
         random.seed(seed)  # Python's random seed
         np.random.seed(seed)  # Numpy random seed
         torch.manual_seed(seed)  # PyTorch seed
         torch.cuda.manual_seed_all(seed)  # CUDA seed (for multi-GPU setups)
         torch.backends.cudnn.deterministic = True  # Ensure deterministic algorithms
-        torch.backends.cudnn.benchmark = False  # Disable non-deterministic algorithms  
-
+        torch.backends.cudnn.benchmark = False  # Disable non-deterministic algorithms
 
     def shorten_trial_dirname(self, trial):
         """Shorten the trial directory name to avoid path length issues on Windows."""
         return f"trial_{trial.trial_id}"
 
-    
-    def generate_valid_hidden_and_heads(self, hidden: list, heads : int):
-            valid_combinations = []
-            heads = int(heads)  # Convert heads to int
-            for h in range(hidden[0], hidden[1], 20):  # range of hidden units
-                logger.debug(f"Type of h: {type(h)}")
-                if h % heads == 0:
-                    logger.debug(f"Type of heads: {type(heads)}")
-                    valid_combinations.append(hidden)
-            logger.info(f"Valid combinations: {valid_combinations}")
-            return random.choice(valid_combinations)
-
-    def test_best_model(self, best_result, smoke_test=False):
-
-        best_trained_model = self._initialize_model(best_result.config["model_type"])
-        
-        best_trained_model.to(self.device)
-
-        checkpoint_path = os.path.join(best_result.checkpoint.to_directory(), "checkpoint.pt")
-
-        model_state, optimizer_state = torch.load(checkpoint_path)
-        best_trained_model.load_state_dict(model_state)
-
-        if smoke_test:
-            _, testset = load_test_data()
-        else:
-            _, testset = load_data()
-
-        testloader = torch.utils.data.DataLoader(
-            testset, batch_size=4, shuffle=False, num_workers=2
-        )
-
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for data in testloader:
-                
-                # to do
-                # _, predicted = torch.max(outputs.data, 1)
-                # total += labels.size(0)
-                # correct += (predicted == labels).sum().item()
-                pass
-
-
-        logger.info("Best trial test set accuracy: {}".format(correct / total))
-
 
     def train(self, config: Dict):
         """
-        Train function to be passed to Ray Tune. Dynamically handles datasets and models.
+        Train function for model training within Ray Tune. This function dynamically handles dataset 
+        selection, model initialization, training settings, and learning rate scheduling based on 
+        the provided hyperparameter configuration.
 
         Args:
-            config (Dict): Hyperparameter configuration provided by Ray Tune.
-        """               
-                
+            config (Dict): Hyperparameter configuration provided by Ray Tune. This includes 
+                            model parameters, dataset paths, optimizer settings, and scheduler.
+        """
+        
+        # Retrieve the data directory and set random seed for reproducibility
         data_dir = config[config_param.data_dir]
         self.set_seed(config[config_param.seed])
-        
-        trainfile = Path(config[config_param.trainfile])
-        testfile = Path(config[config_param.testfile]) 
 
+        # Load training and testing file paths from the config
+        trainfile = Path(config[config_param.trainfile])
+        testfile = Path(config[config_param.testfile])
+
+        # Check for device availability (MPS or CPU) and log the selected device
         if torch.backends.mps.is_available():
             self.device = torch.device('mps')
             logger.info('MPS is available')
         else:
             self.device = torch.device('cpu')
             logger.info('MPS is not available, using CPU')
-    
 
         logger.info(f"Training with model: {config[config_param.model_type]}")
-        
+
+        # Load the appropriate dataset based on model type (1D or 2D)
         traindataset = datasets.HeartDataset1D(trainfile, target="target")
         testdataset = datasets.HeartDataset1D(testfile, target="target")
         msg = "Loading 1D data"
 
+        # If model type is 2D, load the 2D dataset
         if "2D" in config[config_param.model_type]: 
-            msg = "Loading 2D data"     
+            msg = "Loading 2D data"
             traindataset = datasets.HeartDataset2D(trainfile, target="target", shape=config[config_param.shape])
             testdataset = datasets.HeartDataset2D(testfile, target="target", shape=config[config_param.shape])
-            
+
         logger.info(msg)
-   
-        #Load the datastreamers
+
+        # Load the data streamers for training and testing datasets
         preprocessor_class = config.get(config_param.preprocessor, BasePreprocessor)
         preprocessor = preprocessor_class()
-        
+
+        # Ensure the data directory is locked during data loading
         with FileLock(data_dir / ".lock"):
-            trainstreamer = BaseDatastreamer(traindataset, preprocessor = BasePreprocessor(), batchsize=config[config_param.batch])
-            teststreamer = BaseDatastreamer(testdataset, preprocessor = BasePreprocessor(), batchsize=config[config_param.batch])
+            trainstreamer = BaseDatastreamer(traindataset, preprocessor=BasePreprocessor(), batchsize=config[config_param.batch])
+            teststreamer = BaseDatastreamer(testdataset, preprocessor=BasePreprocessor(), batchsize=config[config_param.batch])
 
-
-        # Initialize the model
+        # Initialize the model with configuration settings
         model = self._initialize_model(config)
 
-
-        # Trainer settings
+        # Set up trainer settings such as metrics, training steps, and early stopping
         trainersettings = TrainerSettings(
             epochs=self.MAX_EPOCHS,
             metrics=[self.accuracy, self.f1micro, self.f1macro, self.precision, self.recall],
@@ -174,40 +145,19 @@ class Hypertuner:
             valid_steps=len(teststreamer)//5,
             reporttypes=self.reporttypes,
             scheduler_kwargs={"factor": config[config_param.factor], "patience": config[config_param.patience]},
-            #scheduler_kwargs={"factor": 0.3, "patience": config['patience']}, #hypertuning shows default values work best
-            #earlystop_kwargs={"patience": config[config_param.earlystopping_patience], "save": True},
         )
-        # Custom learning rate scheduler ExponentialLR
+
+        # Apply custom learning rate scheduler (ExponentialLR)
         if config.get(config_param.scheduler) == torch.optim.lr_scheduler.ExponentialLR:
-                    logger.info("Using ExponentialLR")
-                    trainersettings.scheduler_kwargs = {"gamma": config[config_param.factor]}
-        
-        # Custom learning rate scheduler LambdaLR
-        if config.get(config_param.scheduler) == torch.optim.lr_scheduler.LambdaLR:
-            logger.info("Using LambdaLR")
-            # Parameters
-            num_warmup_steps = 1000
-            num_training_steps = 10000
-            initial_lr = 5e-5
-            min_lr = 1e-7
+            logger.info("Using ExponentialLR")
+            trainersettings.scheduler_kwargs = {"gamma": config[config_param.factor]}
 
-            # Custom linear scheduler with warmup
-            def lr_lambda(current_step: int):
-                if current_step < num_warmup_steps:
-                    return float(current_step) / float(max(1, num_warmup_steps))
-                else:
-                    progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
-                    return max(min_lr / initial_lr, (1.0 - progress))
-
-            # Learning rate scheduler
-            trainersettings.scheduler_kwargs = {"lr_lambda": lr_lambda}
-        # Custom learning rate scheduler CosineAnnealingLR    
+        # Apply CosineAnnealingLR scheduler
         if config.get("scheduler") == torch.optim.lr_scheduler.CosineAnnealingLR:
             logger.info("Using OneCycleLR")
             trainersettings.scheduler_kwargs = {"T_max": trainersettings.train_steps}
 
-
-        # Set up the trainer
+        # Initialize the trainer with model, optimizer, loss function, and data
         trainer = Trainer(
             model=model,
             settings=trainersettings,
@@ -220,36 +170,55 @@ class Hypertuner:
         )
 
         logger.info(f"Starting training on {self.device}")
+
+        # Start training loop
         try:
             trainer.loop()
         except Exception as e:
+            # Catch any exceptions and log the error
             logger.exception(f"An error occurred during training: {e}")
             raise
+
   
     def load_datafiles(self):
+        """
+        Loads the training and test datasets based on the configuration settings.
+        
+        The function checks the configuration for the dataset type (SMOTE or oversampled) 
+        and constructs the file paths for both the training and testing data. It also ensures 
+        that the directory for Ray Tune model outputs exists, creating it if necessary.
+
+        Returns:
+            tuple: A tuple containing the paths to the training file and test file.
+                - trainfile (Path): Path to the training dataset.
+                - testfile (Path): Path to the testing dataset.
+        """
+        # Retrieve the data directory and configuration file path
         data_dir = self.config[config_param.data_dir]
         configfile = Path("config.toml")
 
+        # Load paths from the config file
         with configfile.open('rb') as f:
             paths = tomllib.load(f)
 
-        
+        # Ensure the Tune directory exists or create it
         tune_dir = Path("models/ray").resolve()
         if not tune_dir.exists():
             tune_dir.mkdir(parents=True)
             logger.info(f"Created {tune_dir}")
 
-        #load train and test files
+        # Load the train and test files based on the selected dataset type
         if self.config[config_param.traindataset] == 'smote':
             trainfile = data_dir / (paths['arrhythmia_smote'] + '_train.parq')
             logger.info(f"Training with SMOTE dataset")
         else:
             trainfile = data_dir / (paths['arrhythmia_oversampled'] + '_train.parq')
             logger.info(f"Training with oversampled dataset")
-       # trainfile = data_dir / (paths['arrhythmia_semioversampled'] + '_train.parq')
+        
         testfile = data_dir / (paths['arrhythmia'] + '_test.parq')
 
         return trainfile, testfile
+
 
 
     def _initialize_model(self, config: Dict):
@@ -285,12 +254,9 @@ class Hypertuner:
 
 
 if __name__ == "__main__":
-    #test with 2DCNN
+    #test with 2DCNNResnet
     #ray.init()
     ray.init()
-
-
-
 
     data_dir = base_hypertuner.data_dir
     seed = random.randint(0, 2**32 - 1)
@@ -305,11 +271,11 @@ if __name__ == "__main__":
         config_param.hidden: tune.choice([128, 256]), # hidden units for cnn and dense layer
         config_param.dropout: tune.choice([0.2, 0.3]),
         config_param.num_layers: tune.randint(2, 5), #num layers RNN
-        config_param.model_type: modelnames.Transformer1DResnet,  # Specify the model type
+        config_param.model_type: modelnames.CNN2DResNet,  # Specify the model type
         config_param.num_blocks: tune.randint(1, 8), # num conv / resnet blocks
         config_param.num_classes: 5,
-        #config_param.shape: (16, 12), # shape for 2D models
-        config_param.num_heads: tune.choice([2, 8]), # heads for attention
+        config_param.shape: (16, 12), # shape for 2D models
+        #config_param.num_heads: tune.choice([2, 8]), # heads for attention
         config_param.scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
         config_param.factor: 0.2,
         config_param.patience: 2, # wait time before reducing lr with factor
