@@ -1,4 +1,4 @@
-## 3. General info
+## General info
 Student: Francesca Paulin
 Repo: https://github.com/FP-byte/MADS_EXAM-25_FP
 
@@ -20,9 +20,9 @@ run through the rye installer like this:
 
 For windows this should be the same, except for the platform of course...
 
-## install dependencies
+## Install project dependencies
 
-To install the project dependencies:
+To install the project dependencies, download the rep, go to the repository and type:
 `rye sync`
 
 ## Install CUDA for GPU 
