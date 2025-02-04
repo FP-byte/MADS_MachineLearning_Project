@@ -132,6 +132,7 @@ class Dashboard():
         return markdown_table
 
     def report_top_results_md(self, df):
+        # creates a report of the configurations in markdown format
         report={}
         for col in df.columns:
             report[col] = "<br>".join(map(lambda x: f"{x:.4f}" if isinstance(x, float) else str(x), df[col]))

@@ -5,7 +5,7 @@ from loguru import logger
 from torch import Tensor, nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from settings import config_param
+
 
 ################### BLOCKS FOR MODELS ###################
 
@@ -346,24 +346,32 @@ class GRU(nn.Module):
         # Output layer
         self.linear = nn.Linear(int(config["hidden"]), config["num_classes"])
 
-    def forward(self, x, lengths):
-        # Pack the padded sequence (requires lengths of the sequences)
-        packed_input = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
-        
-        # Pass the packed sequence through the GRU
-        packed_output, _ = self.rnn(packed_input)
-        
-        # Unpack the output (you may not need this depending on your use case)
-        output, _ = pad_packed_sequence(packed_output, batch_first=True)
-        
-        # Extract the last non-padded output for each sequence in the batch
-        # We use lengths to get the last valid output for each sequence
-        last_step = output[torch.arange(output.size(0)), lengths - 1]
-        
-        # Pass the last valid output through the linear layer for final prediction
+    def forward(self, x):
+        x, _ = self.rnn(x)
+        last_step = x[:, -1, :]
         yhat = self.linear(last_step)
-        
         return yhat
+
+    #Pack the padded sequence in GRU
+
+    # def forward(self, x, lengths=192):
+    #     # Pack the padded sequence (requires lengths of the sequences)
+    #     packed_input = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
+        
+    #     # Pass the packed sequence through the GRU
+    #     packed_output, _ = self.rnn(packed_input)
+        
+    #     # Unpack the output (you may not need this depending on your use case)
+    #     output, _ = pad_packed_sequence(packed_output, batch_first=True)
+        
+    #     # Extract the last non-padded output for each sequence in the batch
+    #     # We use lengths to get the last valid output for each sequence
+    #     last_step = output[torch.arange(output.size(0)), lengths - 1]
+        
+    #     # Pass the last valid output through the linear layer for final prediction
+    #     yhat = self.linear(last_step)
+        
+    #     return yhat
 
 # attentions gru with normalization layer
 
@@ -677,7 +685,7 @@ class CNN1DGRUResNet(nn.Module):
         # GRU layer added after the convolutional blocks
         self.gru = nn.GRU(
             input_size=hidden,  # GRU input size is now the same as the output of the conv block
-            hidden_size=config[config_param.gru_hidden],  # Hidden size of the GRU
+            hidden_size=config['gru_hidden'],  # Hidden size of the GRU
             num_layers=config['num_layers'],  # Number of GRU layers
             dropout=config['dropout'],  # Dropout (if any) for the GRU
             batch_first=True,  # GRU expects input in the form (batch_size, sequence_length, features)
@@ -686,7 +694,7 @@ class CNN1DGRUResNet(nn.Module):
         # Fully connected (dense) layers
         self.dense = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(config[config_param.gru_hidden], hidden),  # Linear layer after GRU
+            nn.Linear(config['gru_hidden'], hidden),  # Linear layer after GRU
             nn.ReLU(),
             nn.Linear(hidden, config['num_classes']),
         )

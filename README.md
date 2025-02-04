@@ -18,7 +18,7 @@ Due to imbalance of the train dataset, the dataset has been rebalanced in two wa
 The process of resampling is described in the notebook `notebooks/05_Resampling.ipyb`
 
 ### Oversampling traing dataset oversampling
-Semi balanced dataset is obtain by upsampeling the minority classes to the majority class, keeping the unbalanced distribution.
+Semi balanced dataset is obtain by upsampeling the minority classes to the majority class, still keeping the unbalanced distribution.
 The distribution is as follows:
 0.0    72471
 4.0    30938
@@ -30,12 +30,15 @@ Fully balanced dataset is composed as follows:
 Downsampling: 75% of the majority class (55.000) 
 Upsampling: all the majority class have been upsampled to 55.000 samples
 
+In both cases the upsampling did not introduce new data but just a repetition of samples.
+The semi-sampled has been used for few training rounds and then replaced by the fully oversampled one.
+
+
 ### SMOTE dataset
-Smote dataset consist of syntetic data obtained by syntesizing new samples similar to the ones in the dataset.
-Dataset contains 72.471 for each class
+Smote dataset consist of syntetic data obtained by creating new instances that are interpolated between existing instances of the minority class. It uses a k-nearest neighbors (k-NN) approach to find similar points and generates synthetic examples that are between those points.
+Dataset contains 72.471 samples for each class.
 
 The traing of the models has been done on the original dataset and all three datasets.
-The semi-sampled has been used for few training round and then replaced by the fully oversampled one.
 
 
 ## Exploration and hypothesis
@@ -49,12 +52,12 @@ Please find the report in `report/MADS_report_FP.pdf`
 
 # 1. Explore
 My explorations (see src/models.py) incuded:
-- CNN2DResNet
+- CNN 2D + ResNet
 - Transformer with CNN 2D
-- Transformer1D + Resnet
-- Transformer1D + Resnet + Squeeze and Excite (SE)
-- Transformer2D + ResNet
-- Transformer2D + ResNet + Squeeze and Excite (SE)
+- Transformer + CNN 1D + Resnet
+- Transformer + CNN 1D + Resnet + Squeeze and Excite (SE)
+- Transformer + CNN 2D + ResNet
+- Transformer + CNN 2D + ResNet + Squeeze and Excite (SE)
 - CNN1D + ResNet
 - CNN1D GRU + ResNet
 - CNN1D + GRU+ ResNet + Multihead Attention
@@ -62,9 +65,7 @@ My explorations (see src/models.py) incuded:
 ## 2 Hypertune
 
 Hypertuning of hybrid model 1D CNN + GRU: `hypertune_1DCNNGRU.py` file to hypertune the model with Ray. 
-Hypertuning of hybrid model 1D CNN + GRU: `hypertune_2DCNNResnet.py` file to hypertune the model with Ray. 
+Hypertuning of hybrid model 2D CNN + Resnet: `hypertune_2DCNNResnet.py` file to hypertune the model with Ray. 
 The files make use of basis settings from the class Hypertuner (hypertuner.py)
-
-
 
 
