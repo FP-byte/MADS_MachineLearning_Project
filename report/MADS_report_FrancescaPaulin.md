@@ -12,13 +12,9 @@
 
 
 
-### Author: Francesca Paulin Tumburus
-### Student nr: 1882135 
+### Author: Francesca P
 ### Course: Machine learning  
-### Teacher: Raoul Grouls 
 ### Date: 04-02-2025 
-
-Project repo: [https://github.com/FP-byte/MADS_EXAM-25_FP](https://github.com/FP-byte/MADS_EXAM-25_FP)
 
 <div style="page-break-after: always;"></div>
 
