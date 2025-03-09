@@ -1,6 +1,3 @@
-## General info
-Student: Francesca Paulin
-Repo: https://github.com/FP-byte/MADS_EXAM-25_FP
 
 # Installation
 
