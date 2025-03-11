@@ -125,7 +125,7 @@ The files make use of basis settings from the class Hypertuner (hypertuner.py)
 
 ## Run the dashboard for Ray logs:
 
-![Dashboard for data visualization of best models in Ray Tune logs](report/img/dashboard_ray.png)
+![Dashboard for data visualization of best models in Ray Tune logs](dashboard_ray.png)
 I created a simple dashboard to analyze the hypertuning logs (selects only the given number of top configurations the highest accuracy/recall).
 Start your as described above then run:
 ```bash
